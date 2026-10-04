@@ -11,18 +11,12 @@ Run `cargo test`, `cargo clippy --all-targets -- -D warnings`, and `cargo fmt --
 CI adds `--locked` to verify that the committed lockfile is current.
 Each executable has a local-input-only `build.rs` and one `phoxal::api!()` attachment.
 Robot projects select these packages through `robot.yaml` and use `cargo phoxal prepare` before their ordinary build and test workflow.
-Published package dependencies use the Phoxal registry; no sibling checkout is required.
+Rust dependencies resolve from crates.io; authored participant selections use local paths or full pinned Git revisions.
 
 ## Publication
 
-Review and merge package version changes normally before publication.
-Dispatch the publication workflow on the approved revision, selecting one package and an independently released publication-tool version.
-The workflow verifies its archive and submits it for registry review; a pending registry review is not a published release.
-Packages retain independent versions, and compatibility follows the interfaces consumed by each operation.
-
-## Registry dependencies
-
-Framework SDK/build/macros `0.0.0-dev.8` are published in the Phoxal registry.
-Committed application lockfiles record their registry sources and archive checksums.
-Normal source builds use those dependencies without a sibling framework checkout or a local overlay.
-Publishing this repository's application or participant packages remains a separate release operation.
+Each standalone package owns its release-plz configuration and committed application lockfile.
+The repository runs a small package matrix rather than sharing a workspace dependency selection.
+Review standard version/changelog PRs, then publish tested revisions to crates.io through release-plz.
+Package versions are independent; compatibility follows the interfaces each participant serves.
+Owners must be available publicly before dependent package locks and releases are accepted.
