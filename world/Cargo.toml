@@ -39,3 +39,11 @@ unwrap_used = "deny"
 expect_used = "deny"
 todo = "deny"
 unimplemented = "deny"
+
+[features]
+host-acceptance = []
+
+[[test]]
+name = "runtime_transport"
+path = "tests/runtime_transport.rs"
+required-features = ["host-acceptance"]

@@ -1,0 +1,14 @@
+name: world transport qualification
+on: [workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  transport:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: world
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - run: cargo test --locked --features host-acceptance --test runtime_transport

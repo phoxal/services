@@ -20,9 +20,9 @@ Dispatch the publication workflow on the approved revision, selecting one packag
 The workflow verifies its archive and submits it for registry review; a pending registry review is not a published release.
 Packages retain independent versions, and compatibility follows the interfaces consumed by each operation.
 
-## Current development boundary
+## Registry dependencies
 
-The implementation requires framework SDK/build/macros `0.0.0-dev.8`.
-That owner release is not yet in the public registry; current local qualification uses an explicit owner overlay.
-Registry-backed fresh-checkout builds and installable releases remain blocked until publication and Cargo-generated consumer lockfiles are reconciled against it.
-CI attempts the normal registry-backed build and reports this failure rather than substituting an unpublished source checkout.
+Framework SDK/build/macros `0.0.0-dev.8` are published in the Phoxal registry.
+Committed application lockfiles record their registry sources and archive checksums.
+Normal source builds use those dependencies without a sibling framework checkout or a local overlay.
+Publishing this repository's application or participant packages remains a separate release operation.

@@ -1992,6 +1992,8 @@ dependencies = [
 [[package]]
 name = "phoxal"
 version = "0.0.0-dev.8"
+source = "sparse+https://phoxal.github.io/registry/"
+checksum = "7d554184b5477f1f7c06706311f06cd01007afc8c4ff82eb157e9904dc25e098"
 dependencies = [
  "anyhow",
  "clap",
@@ -2017,6 +2019,8 @@ dependencies = [
 [[package]]
 name = "phoxal-build"
 version = "0.0.0-dev.8"
+source = "sparse+https://phoxal.github.io/registry/"
+checksum = "812e736554f8156341601ddd07f957fb9a0e4fcfe65f0b6d7ecef43d0275f39e"
 dependencies = [
  "fs4",
  "heck",
@@ -2037,6 +2041,8 @@ dependencies = [
 [[package]]
 name = "phoxal-macros"
 version = "0.0.0-dev.8"
+source = "sparse+https://phoxal.github.io/registry/"
+checksum = "ed649d32e02831da67cd31809c36c873d52532f12e7aafa76e01e003507f59c1"
 dependencies = [
  "heck",
  "proc-macro2",
