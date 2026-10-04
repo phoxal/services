@@ -1,0 +1,33 @@
+[package]
+name = "phoxal-service-motion"
+version = "0.0.0-dev.8"
+edition = "2024"
+rust-version = "1.88"
+license = "AGPL-3.0-only"
+publish = ["phoxal"]
+description = "Motion service executable for Phoxal."
+documentation = "https://github.com/phoxal/services#readme"
+homepage = "https://github.com/phoxal/services"
+repository = "https://github.com/phoxal/services"
+include = ["src/**", "build.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE", ".cargo/config.toml", "clippy.toml"]
+
+[[bin]]
+name = "phoxal-service-motion"
+path = "src/main.rs"
+
+[build-dependencies]
+phoxal = { version = "=0.0.0-dev.8", registry = "phoxal", default-features = false, features = ["build"] }
+
+[dependencies]
+phoxal = { version = "=0.0.0-dev.8", registry = "phoxal", default-features = false, features = ["runtime"] }
+thiserror = { version = "2.0.18" }
+anyhow = { version = "1.0.102" }
+serde = { version = "1.0.228", features = ["derive"] }
+
+[lints.rust]
+unused = "warn"
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+todo = "deny"
+unimplemented = "deny"

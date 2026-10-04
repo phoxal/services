@@ -1,0 +1,41 @@
+[package]
+name = "phoxal-service-world"
+version = "0.0.0-dev.8"
+edition = "2024"
+rust-version = "1.88"
+license = "AGPL-3.0-only"
+publish = ["phoxal"]
+description = "Phoxal world estimation service executable and packaged API."
+documentation = "https://github.com/phoxal/services#readme"
+homepage = "https://github.com/phoxal/services"
+repository = "https://github.com/phoxal/services"
+include = ["src/**", "build.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE", ".cargo/config.toml", "clippy.toml"]
+
+[[bin]]
+name = "phoxal-service-world"
+path = "src/main.rs"
+
+[build-dependencies]
+phoxal = { version = "=0.0.0-dev.8", registry = "phoxal", default-features = false, features = ["build"] }
+
+[dependencies]
+phoxal = { version = "=0.0.0-dev.8", registry = "phoxal", default-features = false, features = ["runtime"] }
+thiserror = { version = "2.0.18" }
+anyhow = { version = "1.0.102" }
+serde = { version = "1.0.228", features = ["derive"] }
+
+[dev-dependencies]
+prost = { version = "0.14.4" }
+serde_json = { version = "1.0.149" }
+sha2 = { version = "0.10.9" }
+tempfile = { version = "3.27.0" }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time", "signal", "sync", "fs", "process"] }
+zenoh = { version = "=1.9.0", default-features = false, features = ["auth_pubkey", "auth_usrpwd", "transport_multilink", "transport_quic", "transport_quic_datagram", "transport_tcp", "transport_tls", "transport_udp", "transport_unixsock-stream", "transport_ws"] }
+
+[lints.rust]
+unused = "warn"
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+todo = "deny"
+unimplemented = "deny"
