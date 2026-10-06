@@ -10,12 +10,13 @@ use crate::contract::{
 #[cfg(test)]
 use crate::contract::{Constraint, ConstraintReason};
 use crate::contract::{MotionConstraints, Permission};
+use crate::drive::WheelCommands;
 #[cfg(test)]
 use crate::drive::setpoint_from_twist;
 use crate::drive::{setpoint_from_intent, stopped_setpoint};
 use crate::validation;
 use phoxal::contracts::Empty;
-use phoxal::contracts::component::actuator::ActuatorSetpoint;
+use phoxal::contracts::component::actuator::ActuatorCommand;
 #[cfg(test)]
 use phoxal::runtime::StepContext;
 #[cfg(test)]
@@ -43,10 +44,10 @@ pub struct ArbiterState {
     last_engaged_invocation: Option<u64>,
     engaged_this_invocation: bool,
     protective_state_clear: bool,
-    measurement_available: bool,
+    measurement_requirement_satisfied: bool,
     selected_owner_id: Option<String>,
     selected_intent: Option<MotionIntent>,
-    actuator_setpoint: ActuatorSetpoint,
+    actuator_setpoint: WheelCommands,
 }
 
 impl ArbiterState {
@@ -59,7 +60,7 @@ impl ArbiterState {
             last_engaged_invocation: None,
             engaged_this_invocation: false,
             protective_state_clear: false,
-            measurement_available: false,
+            measurement_requirement_satisfied: false,
             selected_owner_id: None,
             selected_intent: None,
         }
@@ -152,7 +153,7 @@ impl Motion {
     fn arbitrate(&mut self, ctx: &mut Context<'_, Self>) -> phoxal::Result<()> {
         let facts = fresh_facts(ctx);
         self.arbiter.protective_state_clear = facts.protective_state_clear;
-        self.arbiter.measurement_available = facts.measurement_available;
+        self.arbiter.measurement_requirement_satisfied = facts.measurement_requirement_satisfied;
         let engaged_this_invocation =
             self.arbiter.last_engaged_invocation == Some(ctx.invocation_index());
         if engaged_this_invocation || self.arbiter.emergency_latched {
@@ -171,10 +172,11 @@ impl Motion {
             &self.arbiter.actuator_setpoint,
             self.arbiter
                 .config
-                .left_wheels
-                .iter()
-                .chain(&self.arbiter.config.right_wheels)
-                .map(|wheel| wheel.actuator_id.as_str()),
+                .drive
+                .differential()
+                .wheels
+                .keys()
+                .map(String::as_str),
         )
         .map_err(|error| anyhow::anyhow!(error))?;
 
@@ -186,9 +188,21 @@ impl Motion {
     }
 
     /// Projects the final actuator intent with an independent validity bound.
-    #[publish(actuators)]
-    fn actuators(&self) -> Option<ActuatorSetpoint> {
-        Some(self.arbiter.actuator_setpoint.clone())
+    #[publish(wheels)]
+    fn wheel_outputs(&self) -> Vec<(String, Option<ActuatorCommand>)> {
+        self.arbiter
+            .actuator_setpoint
+            .targets
+            .iter()
+            .map(|wheel| {
+                (
+                    wheel.wheel_name.clone(),
+                    Some(ActuatorCommand {
+                        control: wheel.control,
+                    }),
+                )
+            })
+            .collect()
     }
 
     /// Renews authority and protective status at each invocation so Safety
@@ -217,17 +231,31 @@ impl Motion {
 struct MotionFacts {
     invocation_index: u64,
     protective_state_clear: bool,
-    measurement_available: bool,
+    measurement_requirement_satisfied: bool,
 }
 
 fn fresh_facts(ctx: &Context<'_, Motion>) -> MotionFacts {
-    let now = ctx.now();
+    input_facts(
+        ctx.invocation_index(),
+        ctx.now(),
+        &ctx.safety(),
+        &ctx.measurements(),
+    )
+}
+
+fn input_facts(
+    invocation_index: u64,
+    now: ExecutionTime,
+    safety: &Observation<'_, MotionConstraints>,
+    measurements: &Observation<'_, OdometryState>,
+) -> MotionFacts {
     MotionFacts {
-        invocation_index: ctx.invocation_index(),
-        protective_state_clear: fresh_safety(&ctx.safety(), now)
-            .is_some_and(|safety| safety_is_clear(safety, now)),
-        measurement_available: fresh_measurement(&ctx.measurements(), now)
-            .is_some_and(|measurement| measurement.available && valid_measurement(measurement)),
+        invocation_index,
+        protective_state_clear: !safety.is_connected()
+            || fresh_safety(safety, now).is_some_and(|safety| safety_is_clear(safety, now)),
+        measurement_requirement_satisfied: !measurements.is_connected()
+            || fresh_measurement(measurements, now)
+                .is_some_and(|measurement| measurement.available && valid_measurement(measurement)),
     }
 }
 
@@ -296,7 +324,7 @@ fn apply_arm(
     };
     if state.emergency_latched
         || !facts.protective_state_clear
-        || !facts.measurement_available
+        || !facts.measurement_requirement_satisfied
         || !intent_matches(mode, owner, manual, autonomous, now)
     {
         return refused(EmergencyRefusalReason::ProtectiveState);
@@ -313,7 +341,7 @@ fn apply_release(
     if validation::release_request(request).is_err() {
         return refused(EmergencyRefusalReason::InvalidRequest);
     }
-    if !facts.protective_state_clear || !facts.measurement_available {
+    if !facts.protective_state_clear || !facts.measurement_requirement_satisfied {
         return refused(EmergencyRefusalReason::ProtectiveState);
     }
     state.emergency_latched = false;
@@ -360,12 +388,12 @@ fn select_and_limit_intent(
     autonomous: &Leased<'_, MotionIntent>,
     now: ExecutionTime,
 ) {
-    let Some(safety) = fresh_safety(safety_view, now) else {
-        state.disarm();
-        return;
-    };
-    if !state.measurement_available
-        || !matches!(safety.permission, Permission::Clear | Permission::Limited)
+    let safety = fresh_safety(safety_view, now);
+    if !state.measurement_requirement_satisfied
+        || (safety_view.is_connected()
+            && !safety.is_some_and(|safety| {
+                matches!(safety.permission, Permission::Clear | Permission::Limited)
+            }))
     {
         state.disarm();
         return;
@@ -400,7 +428,7 @@ fn select_and_limit_intent(
     state.selected_owner_id = Some(owner.to_owned());
     state.selected_intent = Some(intent);
     let mut limited = intent;
-    for constraint in &safety.constraints {
+    for constraint in safety.into_iter().flat_map(|safety| &safety.constraints) {
         if let Some(maximum) = constraint.max_linear_speed_mps {
             limited.linear_x_mps = limited.linear_x_mps.clamp(-maximum, maximum);
         }
@@ -635,18 +663,28 @@ mod tests {
 
     fn config() -> MotionConfig {
         MotionConfig {
-            wheel_radius_m: 0.11,
-            wheel_base_m: 0.6,
-            left_wheels: vec![crate::config::WheelActuator {
-                actuator_id: "left".into(),
-                direction_sign: 1,
-                gear_ratio: 1.0,
-            }],
-            right_wheels: vec![crate::config::WheelActuator {
-                actuator_id: "right".into(),
-                direction_sign: -1,
-                gear_ratio: 1.0,
-            }],
+            drive: crate::config::DriveModel::Differential(crate::config::DifferentialDrive {
+                wheel_radius_m: 0.11,
+                track_width_m: 0.6,
+                wheels: std::collections::BTreeMap::from([
+                    (
+                        "left".into(),
+                        crate::config::WheelActuator {
+                            side: crate::config::WheelSide::Left,
+                            direction_sign: 1,
+                            gear_ratio: 1.0,
+                        },
+                    ),
+                    (
+                        "right".into(),
+                        crate::config::WheelActuator {
+                            side: crate::config::WheelSide::Right,
+                            direction_sign: -1,
+                            gear_ratio: 1.0,
+                        },
+                    ),
+                ]),
+            }),
             max_linear_mps: 0.5,
             max_angular_radps: 1.5,
         }
@@ -724,22 +762,114 @@ mod tests {
     }
 
     #[test]
+    fn basic_motion_arms_drives_and_expires_without_protective_sources() {
+        let mut state = ArbiterState::new(config());
+        let safety = Latest::unavailable();
+        let measurements = Latest::unavailable();
+        let safety_view = Observation::new(&safety, at(0), Some(INPUT_MAX_AGE_MS));
+        let measurements_view = Observation::new(&measurements, at(0), Some(INPUT_MAX_AGE_MS));
+        let facts = input_facts(0, at(0), &safety_view, &measurements_view);
+        let manual = manual_intent("operator", 0.2, 0.0, at(0));
+        let autonomous = Setpoint::withdrawn();
+        let manual_view = Leased::new(&manual, at(0));
+        let autonomous_view = Leased::new(&autonomous, at(0));
+        state.measurement_requirement_satisfied = facts.measurement_requirement_satisfied;
+        assert_eq!(
+            apply_arm(
+                &mut state,
+                &ArmRequest {
+                    mode: ControlMode::Manual
+                },
+                "operator",
+                facts,
+                &manual_view,
+                &autonomous_view,
+                at(0)
+            ),
+            accepted()
+        );
+        select_and_limit_intent(
+            &mut state,
+            &safety_view,
+            &manual_view,
+            &autonomous_view,
+            at(0),
+        );
+        assert_eq!(
+            state.actuator_setpoint,
+            setpoint_from_twist(0.2, 0.0, &state.config)
+        );
+        select_and_limit_intent(
+            &mut state,
+            &safety_view,
+            &Leased::new(&manual, at(100_000_001)),
+            &Leased::new(&autonomous, at(100_000_001)),
+            at(100_000_001),
+        );
+        assert!(state.armed_mode.is_none());
+        assert_eq!(state.actuator_setpoint, stopped_setpoint(&state.config));
+    }
+
+    #[test]
+    fn connected_protective_input_without_evidence_refuses_arm() {
+        for safety_required in [true, false] {
+            let mut safety = Latest::unavailable();
+            let mut measurements = Latest::unavailable();
+            if safety_required {
+                safety.bind();
+            } else {
+                measurements.bind();
+            }
+            let facts = input_facts(
+                0,
+                at(0),
+                &Observation::new(&safety, at(0), Some(INPUT_MAX_AGE_MS)),
+                &Observation::new(&measurements, at(0), Some(INPUT_MAX_AGE_MS)),
+            );
+            let mut state = ArbiterState::new(config());
+            let manual = manual_intent("operator", 0.2, 0.0, at(0));
+            let autonomous = Setpoint::withdrawn();
+            assert_eq!(
+                apply_arm(
+                    &mut state,
+                    &ArmRequest {
+                        mode: ControlMode::Manual
+                    },
+                    "operator",
+                    facts,
+                    &Leased::new(&manual, at(0)),
+                    &Leased::new(&autonomous, at(0)),
+                    at(0)
+                ),
+                refused(EmergencyRefusalReason::ProtectiveState)
+            );
+            assert_eq!(state.actuator_setpoint, stopped_setpoint(&state.config));
+        }
+    }
+
+    #[test]
     fn four_wheel_actuation_is_complete_and_calibrated_in_both_directions() {
         let mut cfg = config();
-        cfg.left_wheels.push(crate::config::WheelActuator {
-            actuator_id: "left-rear".into(),
-            direction_sign: -1,
-            gear_ratio: 2.0,
-        });
-        cfg.right_wheels.push(crate::config::WheelActuator {
-            actuator_id: "right-rear".into(),
-            direction_sign: 1,
-            gear_ratio: 3.0,
-        });
+        cfg.drive.differential_mut().wheels.insert(
+            "left_rear".into(),
+            crate::config::WheelActuator {
+                side: crate::config::WheelSide::Left,
+                direction_sign: -1,
+                gear_ratio: 2.0,
+            },
+        );
+        cfg.drive.differential_mut().wheels.insert(
+            "right_rear".into(),
+            crate::config::WheelActuator {
+                side: crate::config::WheelSide::Right,
+                direction_sign: 1,
+                gear_ratio: 3.0,
+            },
+        );
         validate_motion_config(&cfg).unwrap();
         for direction in [-1.0, 1.0] {
             let output = setpoint_from_twist(0.22 * direction, 0.0, &cfg);
-            validation::actuator_setpoint(&output, ["left", "left-rear", "right", "right-rear"])
+            validation::actuator_setpoint(&output, ["left", "left_rear", "right", "right_rear"])
                 .unwrap();
             let expected = [2.0, -4.0, -2.0, 6.0];
             for (target, expected) in output.targets.iter().zip(expected) {
@@ -760,7 +890,10 @@ mod tests {
                 .all(|target| target.control
                     == Some(phoxal::contracts::component::actuator::Control::VelocityRadps(0.0)))
         );
-        cfg.left_wheels.clear();
+        cfg.drive
+            .differential_mut()
+            .wheels
+            .retain(|_, wheel| wheel.side != crate::config::WheelSide::Left);
         assert!(validate_motion_config(&cfg).is_err());
     }
 
@@ -776,7 +909,13 @@ mod tests {
     #[test]
     fn yaw_signs_and_gearing_apply_once_at_the_motor_shaft() {
         let mut config = config();
-        config.left_wheels[0].gear_ratio = 2.0;
+        config
+            .drive
+            .differential_mut()
+            .wheels
+            .get_mut("left")
+            .unwrap()
+            .gear_ratio = 2.0;
         let setpoint = setpoint_from_twist(0.0, 1.0, &config);
         assert_eq!(
             setpoint.targets[0].control,
@@ -786,10 +925,16 @@ mod tests {
             setpoint.targets[1].control,
             Some(phoxal::contracts::component::actuator::Control::VelocityRadps(-0.3 / 0.11))
         );
-        config.wheel_radius_m = 0.0;
+        config.drive.differential_mut().wheel_radius_m = 0.0;
         assert!(validate_motion_config(&config).is_err());
-        config.wheel_radius_m = 0.11;
-        config.left_wheels[0].direction_sign = 0;
+        config.drive.differential_mut().wheel_radius_m = 0.11;
+        config
+            .drive
+            .differential_mut()
+            .wheels
+            .get_mut("left")
+            .unwrap()
+            .direction_sign = 0;
         assert!(validate_motion_config(&config).is_err());
     }
 
@@ -895,7 +1040,7 @@ mod tests {
                 .protective_state_clear
         );
         assert_eq!(
-            limited.actuators().expect("accepted actuation").targets[0].control,
+            limited.wheels("left").expect("accepted left wheel").control,
             Some(phoxal::contracts::component::actuator::Control::VelocityRadps(0.15 / 0.11))
         );
         input.safety = safety_state(false, at(40_000_000));
@@ -955,8 +1100,8 @@ mod tests {
         );
         assert!(state.status().expect("accepted status").stopped);
         assert_eq!(
-            state.actuators().expect("accepted actuation"),
-            stopped_setpoint(&config())
+            state.wheels("left").expect("stopped left wheel").control,
+            Some(phoxal::contracts::component::actuator::Control::VelocityRadps(0.0))
         );
     }
 
@@ -1084,7 +1229,7 @@ mod tests {
     }
 
     #[test]
-    fn config_validates_limits_and_unique_actuator_ids() {
+    fn config_validates_limits_and_safe_logical_wheel_names() {
         let mut invalid = config();
         invalid.max_linear_mps = 0.0;
         assert!(Motion::new(invalid).is_err());
@@ -1094,23 +1239,53 @@ mod tests {
         assert!(Motion::new(invalid).is_err());
 
         invalid = config();
-        invalid.left_wheels[0].actuator_id = invalid.right_wheels[0].actuator_id.clone();
+        let wheel = invalid
+            .drive
+            .differential_mut()
+            .wheels
+            .remove("left")
+            .unwrap();
+        invalid
+            .drive
+            .differential_mut()
+            .wheels
+            .insert("../left".into(), wheel);
         assert!(Motion::new(invalid).is_err());
 
         invalid = config();
-        invalid.left_wheels[0].actuator_id.clear();
+        invalid.drive.differential_mut().wheels.remove("left");
         assert!(Motion::new(invalid).is_err());
     }
 
     #[test]
-    fn config_controls_limits_and_actuator_membership() {
+    fn config_controls_limits_and_logical_wheel_outputs() {
         let mut custom = MotionConfig {
             max_linear_mps: 0.1,
             max_angular_radps: 0.2,
             ..config()
         };
-        custom.left_wheels[0].actuator_id = "left-wheel".into();
-        custom.right_wheels[0].actuator_id = "right-wheel".into();
+        let left = custom
+            .drive
+            .differential_mut()
+            .wheels
+            .remove("left")
+            .unwrap();
+        let right = custom
+            .drive
+            .differential_mut()
+            .wheels
+            .remove("right")
+            .unwrap();
+        custom
+            .drive
+            .differential_mut()
+            .wheels
+            .insert("left_wheel".into(), left);
+        custom
+            .drive
+            .differential_mut()
+            .wheels
+            .insert("right_wheel".into(), right);
         let initial = new_arbiter(custom);
         let (state, _) = step(
             initial,
@@ -1121,15 +1296,20 @@ mod tests {
                 vec![arm(1, ControlMode::Manual, "operator")],
             ),
         );
-        let setpoint = state.actuators().expect("setpoint projection");
-        assert_eq!(setpoint.targets[0].actuator_id, "left-wheel");
-        assert_eq!(setpoint.targets[1].actuator_id, "right-wheel");
-        let left = match setpoint.targets[0].control.as_ref() {
-            Some(phoxal::contracts::component::actuator::Control::VelocityRadps(value)) => *value,
+        let left = match state
+            .wheels("left_wheel")
+            .expect("left logical output")
+            .control
+        {
+            Some(phoxal::contracts::component::actuator::Control::VelocityRadps(value)) => value,
             _ => panic!("left actuator must use velocity control"),
         };
-        let right = match setpoint.targets[1].control.as_ref() {
-            Some(phoxal::contracts::component::actuator::Control::VelocityRadps(value)) => *value,
+        let right = match state
+            .wheels("right_wheel")
+            .expect("right logical output")
+            .control
+        {
+            Some(phoxal::contracts::component::actuator::Control::VelocityRadps(value)) => value,
             _ => panic!("right actuator must use velocity control"),
         };
         assert!((left - (0.1 - 0.2 * 0.3) / 0.11).abs() < 1e-12);

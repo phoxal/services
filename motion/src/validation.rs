@@ -6,17 +6,18 @@ use crate::contract::{
     ApplyEmergencyResponse, ArmRequest, Constraint, ConstraintReason, ControlMode,
     MotionConstraints, MotionIntent, Permission, ReleaseEmergencyRequest,
 };
-use phoxal::contracts::component::actuator::{ActuatorSetpoint, Control};
+use crate::drive::WheelCommands;
+use phoxal::contracts::component::actuator::Control;
 
 #[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum ValidationError {
-    #[error("invalid actuator_id: {0}")]
-    InvalidActuatorId(&'static str),
+    #[error("invalid wheel_name: {0}")]
+    InvalidWheelName(&'static str),
     #[error("actuator {0} must select exactly one supported control")]
     MissingControl(String),
-    #[error("actuator {actuator_id} {quantity} must be finite")]
+    #[error("actuator {wheel_name} {quantity} must be finite")]
     NonFinite {
-        actuator_id: String,
+        wheel_name: String,
         quantity: &'static str,
     },
     #[error("setpoint actuator membership does not match configured authority")]
@@ -30,7 +31,7 @@ pub enum ValidationError {
 pub fn intent(value: &MotionIntent) -> Result<(), ValidationError> {
     if !value.linear_x_mps.is_finite() || !value.angular_z_radps.is_finite() {
         return Err(ValidationError::NonFinite {
-            actuator_id: "intent".to_owned(),
+            wheel_name: "intent".to_owned(),
             quantity: "intent",
         });
     }
@@ -69,26 +70,26 @@ pub fn emergency_response(value: &ApplyEmergencyResponse) -> Result<(), Validati
 }
 
 pub fn actuator_setpoint<'a>(
-    value: &ActuatorSetpoint,
+    value: &WheelCommands,
     required_actuators: impl IntoIterator<Item = &'a str>,
 ) -> Result<(), ValidationError> {
     let required = required_actuators.into_iter().collect::<HashSet<_>>();
     let mut actual = HashSet::with_capacity(value.targets.len());
     for target in &value.targets {
-        if target.actuator_id.is_empty() {
-            return Err(ValidationError::InvalidActuatorId("empty"));
+        if target.wheel_name.is_empty() {
+            return Err(ValidationError::InvalidWheelName("empty"));
         }
-        if !actual.insert(target.actuator_id.as_str()) {
-            return Err(ValidationError::InvalidActuatorId("duplicate"));
+        if !actual.insert(target.wheel_name.as_str()) {
+            return Err(ValidationError::InvalidWheelName("duplicate"));
         }
         let quantity = match target.control.as_ref() {
             Some(Control::VelocityRadps(value)) => ("velocity_radps", *value),
             Some(Control::TorqueNm(value)) => ("torque_nm", *value),
-            None => return Err(ValidationError::MissingControl(target.actuator_id.clone())),
+            None => return Err(ValidationError::MissingControl(target.wheel_name.clone())),
         };
         if !quantity.1.is_finite() {
             return Err(ValidationError::NonFinite {
-                actuator_id: target.actuator_id.clone(),
+                wheel_name: target.wheel_name.clone(),
                 quantity: quantity.0,
             });
         }

@@ -6,10 +6,10 @@
 //! Safety constraints are a private typed expectation that a robot adapts
 //! from the selected Safety provider.
 //! The actuator output uses the SDK standard
-//! `phoxal::contracts::component::actuator::ActuatorSetpoint`.
+//! `phoxal::contracts::component::actuator::ActuatorCommand`.
 use phoxal::contracts::robotics::OdometryState;
 
-use phoxal::contracts::component::actuator::ActuatorSetpoint;
+use phoxal::contracts::component::actuator::ActuatorCommand;
 use phoxal::contracts::{Empty, Latest, RequestReply};
 
 /// Why motion is constrained.
@@ -70,7 +70,7 @@ pub struct MotionConstraints {
 
 #[phoxal::messages(package = "phoxal.motion.v1")]
 mod v1 {
-    use super::{ActuatorSetpoint, Empty, Latest, MotionConstraints, OdometryState, RequestReply};
+    use super::{ActuatorCommand, Empty, Latest, MotionConstraints, OdometryState, RequestReply};
 
     /// A motion command in the body frame.
     pub struct MotionIntent {
@@ -153,8 +153,8 @@ mod v1 {
         #[phoxal::input(max_age_ms = 100, max_bytes = 512)]
         measurements: Latest<OdometryState>,
 
-        #[phoxal::output(projection = state, lease_ms = 100, max_bytes = 1024)]
-        actuators: Latest<ActuatorSetpoint>,
+        #[phoxal::output(projection = state, lease_ms = 100, max_bytes = 256, family = "/drive/differential/wheels", suffix = "_actuator", max_ports = 8)]
+        wheels: Latest<ActuatorCommand>,
 
         #[phoxal::output(projection = state, bootstrap, max_bytes = 512)]
         status: Latest<MotionStatus>,

@@ -1,16 +1,25 @@
 //! Differential-drive body twist to motor shaft velocity, in SI units.
 use crate::config::MotionConfig;
+use crate::config::WheelSide;
 use crate::contract::MotionIntent;
-use phoxal::contracts::component::actuator::{ActuatorSetpoint, ActuatorTarget, Control};
+use phoxal::contracts::component::actuator::Control;
 
-pub(super) fn stopped_setpoint(config: &MotionConfig) -> ActuatorSetpoint {
+/// Private invocation-local calculation, not a wire-addressed actuator message.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct WheelCommands {
+    pub targets: Vec<WheelCommand>,
+}
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct WheelCommand {
+    pub wheel_name: String,
+    pub control: Option<Control>,
+}
+
+pub(super) fn stopped_setpoint(config: &MotionConfig) -> WheelCommands {
     setpoint_from_twist(0.0, 0.0, config)
 }
 
-pub(super) fn setpoint_from_intent(
-    intent: &MotionIntent,
-    config: &MotionConfig,
-) -> ActuatorSetpoint {
+pub(super) fn setpoint_from_intent(intent: &MotionIntent, config: &MotionConfig) -> WheelCommands {
     let linear = intent
         .linear_x_mps
         .clamp(-config.max_linear_mps, config.max_linear_mps);
@@ -24,17 +33,22 @@ pub(super) fn setpoint_from_twist(
     linear: f64,
     angular: f64,
     config: &MotionConfig,
-) -> ActuatorSetpoint {
-    let mut targets = Vec::with_capacity(config.left_wheels.len() + config.right_wheels.len());
-    for (wheels, side) in [(&config.left_wheels, -1.0), (&config.right_wheels, 1.0)] {
+) -> WheelCommands {
+    let drive = config.drive.differential();
+    let mut targets = Vec::with_capacity(drive.wheels.len());
+    for (name, wheel) in &drive.wheels {
+        let side = match wheel.side {
+            WheelSide::Left => -1.0,
+            WheelSide::Right => 1.0,
+        };
         let wheel_rate =
-            (linear + side * angular * config.wheel_base_m / 2.0) / config.wheel_radius_m;
-        targets.extend(wheels.iter().map(|wheel| ActuatorTarget {
-            actuator_id: wheel.actuator_id.clone(),
+            (linear + side * angular * drive.track_width_m / 2.0) / drive.wheel_radius_m;
+        targets.push(WheelCommand {
+            wheel_name: name.clone(),
             control: Some(Control::VelocityRadps(
                 wheel_rate * wheel.gear_ratio * f64::from(wheel.direction_sign),
             )),
-        }));
+        });
     }
-    ActuatorSetpoint { targets }
+    WheelCommands { targets }
 }

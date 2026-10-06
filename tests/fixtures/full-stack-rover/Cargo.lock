@@ -2007,6 +2007,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a23cfda89afaca8e2d66c05fc5b3d006e49a0f6c826e29d2d582250402665c3"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "clap",
  "getrandom 0.3.4",
  "jsonschema",
@@ -2019,6 +2020,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",
@@ -2063,13 +2065,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "phoxal-service-kinematics"
-version = "0.0.0-dev.8"
+name = "phoxal-robot-project"
+version = "0.0.0-dev.1"
 dependencies = [
- "anyhow",
  "phoxal",
- "serde",
- "thiserror 2.0.21",
 ]
 
 [[package]]

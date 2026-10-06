@@ -1,0 +1,27 @@
+[package]
+name = "phoxal-robot-project"
+version = "0.0.0-dev.1"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+license = "MIT"
+
+resolver = "3"
+
+
+[dependencies]
+phoxal = { version = "0.70.0" }
+
+[profile.dev.package.sha2]
+opt-level = 3
+
+[dev-dependencies]
+phoxal = { version = "0.70.0", features = ["scenario"] }
+
+[build-dependencies]
+phoxal = { version = "0.70.0", default-features = false, features = ["build"] }
+
+[[example]]
+name = "full-stack"
+path = "scenarios/full_stack.rs"
+test = false
