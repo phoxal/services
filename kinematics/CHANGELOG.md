@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.0-dev.9](https://github.com/phoxal/services/compare/phoxal-service-kinematics-v0.0.0-dev.8...phoxal-service-kinematics-v0.0.0-dev.9) - 2026-10-06
+
+### Added
+
+- [**breaking**] expose configured named wheel outputs in Motion
+
 ## [0.0.0-dev.8](https://github.com/phoxal/services/releases/tag/phoxal-service-kinematics-v0.0.0-dev.8) - 2026-10-04
 
 ### Added

@@ -1,6 +1,6 @@
 [package]
 name = "phoxal-service-kinematics"
-version = "0.0.0-dev.8"
+version = "0.0.0-dev.9"
 edition = "2024"
 rust-version = "1.88"
 license = "AGPL-3.0-only"
