@@ -65,7 +65,7 @@ supervisor:
     git:
       name: phoxal-supervisor
       url: https://github.com/phoxal/supervisor.git
-      rev: 75de07a892794d1d9eff649e53ce4a1de79e97fa
+      rev: 58a6dc05077b97f9a79da391cca0e20722e75c79
 brain: {}
 services:
   kinematics:
