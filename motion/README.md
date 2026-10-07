@@ -2,7 +2,10 @@
 
 This executable owns final actuator intent, arm/disarm state, and emergency handling.
 Its Rust contract in `src/contract.rs` declares its endpoints and specialized payloads.
-Shared actuation records come from `phoxal::contracts`.
+Manual and autonomous inputs consume `phoxal::contracts::robotics::MotionSetpoint` in the shared `phoxal.robotics.v1` namespace.
+Its fields are body-frame forward velocity `linear_x_mps` and counter-clockwise yaw rate `angular_z_radps`.
+Producers depend on that SDK vocabulary, while Motion owns arming, authority, limits, modes, status, emergency handling, and arbitration.
+Shared actuation records also come from `phoxal::contracts`.
 Configuration, inputs, outputs, arbitration, and drive calculations live in separate executable modules.
 
 Select `drive.differential` and configure a `wheels` map of logical names.
@@ -24,11 +27,16 @@ drive:
 ```
 
 ```yaml
-connections:
-  - from: motion.front_left_actuator
-    to: front_left_drive.actuator
-  - from: motion.front_right_actuator
-    to: front_right_drive.actuator
+robot:
+  components:
+    front_left_drive:
+      driver:
+        bindings:
+          actuator: motion.front_left_actuator
+    front_right_drive:
+      driver:
+        bindings:
+          actuator: motion.front_right_actuator
 ```
 
 The runtime starts disarmed and requires an explicit arm command and matching leased intent ownership.
@@ -40,7 +48,15 @@ Unconnected odometry does not create measured motion; Motion publishes commanded
 Motor shaft rates apply each wheel's gearing and direction exactly once after converting the bounded body twist to wheel velocity.
 
 The drive model is a typed enum; only Differential is implemented.
-Logical wheel names determine ports; authored connections alone determine destinations.
+Logical wheel names determine ports; authored consumer bindings alone determine destinations.
 Track width is the distance between wheel contact lines, not mounting sites.
 The current configuration requires explicit wheel radius and track-width calibration.
 Model-derived geometry is deferred; hardware builds and Motion do not require native model loading.
+
+Arm calls use the SDK-authenticated caller instance as the authority owner, matching the admitted intent producer instance even when the call arrives through a generated endpoint.
+Different instances cannot arm against another producer's leased intent.
+Simulation Pause freezes admitted authority and logical leases; normal scheduling on resume determines subsequent input admission and withdrawal.
+
+Runtime qualification uses ordinary typed contract outputs and supervisor/native boundary evidence.
+The production runtime contains no test environment selectors or trace-file I/O.
+External gamepad qualification runs this ordinary executable rather than a diagnostic runtime variant.

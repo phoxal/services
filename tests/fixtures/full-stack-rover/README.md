@@ -5,6 +5,7 @@ It retains Kinematics, World, Navigation, Safety, Motion, range sensing, and gen
 Service sources select the owning packages in this checkout; component and supervisor sources use explicit pinned Git revisions.
 The measured Safety freshness budget, service cadence, wheel qualification, movement, and stop assertions remain unchanged.
 Native scenarios execute the authored composition through the real supervisor and user-managed MuJoCo.
+The brain and scenario use the shared SDK MotionSetpoint payload independently of Motion implementation.
 Motion mission inputs are deliberately external in this fixture, so scenario stimuli are not competing with the brain's withdrawn mission projections.
 Protective and odometry connections remain authored and required.
 The fixture is an acceptance input, not a product or an ordinary Rust test suite.

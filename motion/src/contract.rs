@@ -1,13 +1,12 @@
 //! The motion service's payload vocabulary and endpoint contract.
 //!
-//! This executable authors its `phoxal.motion.v1` intent, status, and
-//! emergency-response messages, private to this binary.
-//! The consumed odometry input uses the SDK robotics standard.
+//! This executable owns its `phoxal.motion.v1` status and emergency-response
+//! messages. Motion setpoints and odometry use the SDK robotics vocabulary.
 //! Safety constraints are a private typed expectation that a robot adapts
 //! from the selected Safety provider.
 //! The actuator output uses the SDK standard
 //! `phoxal::contracts::component::actuator::ActuatorCommand`.
-use phoxal::contracts::robotics::OdometryState;
+use phoxal::contracts::robotics::{MotionSetpoint, OdometryState};
 
 use phoxal::contracts::component::actuator::ActuatorCommand;
 use phoxal::contracts::{Empty, Latest, RequestReply};
@@ -70,17 +69,10 @@ pub struct MotionConstraints {
 
 #[phoxal::messages(package = "phoxal.motion.v1")]
 mod v1 {
-    use super::{ActuatorCommand, Empty, Latest, MotionConstraints, OdometryState, RequestReply};
-
-    /// A motion command in the body frame.
-    pub struct MotionIntent {
-        /// Forward velocity along the body x axis.
-        #[phoxal(tag = 1)]
-        pub linear_x_mps: f64,
-        /// Counter-clockwise yaw rate around the body z axis.
-        #[phoxal(tag = 2)]
-        pub angular_z_radps: f64,
-    }
+    use super::{
+        ActuatorCommand, Empty, Latest, MotionConstraints, MotionSetpoint, OdometryState,
+        RequestReply,
+    };
 
     /// The motion product's control mode.
     pub enum ControlMode {
@@ -142,10 +134,10 @@ mod v1 {
     #[phoxal::endpoints]
     pub struct MotionApi {
         #[phoxal::input(lease_ms = 100, max_bytes = 4096)]
-        manual: Latest<MotionIntent>,
+        manual: Latest<MotionSetpoint>,
 
         #[phoxal::input(lease_ms = 100, max_bytes = 4096)]
-        autonomous: Latest<MotionIntent>,
+        autonomous: Latest<MotionSetpoint>,
 
         #[phoxal::input(max_age_ms = 100, max_bytes = 4096)]
         safety: Latest<MotionConstraints>,

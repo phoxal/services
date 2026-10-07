@@ -13,10 +13,13 @@ Each executable has a local-input-only `build.rs` and one `phoxal::api!()` attac
 Robot projects select these packages through `robot.yaml` and use `cargo phoxal prepare` before their ordinary build and test workflow.
 Rust dependencies resolve from crates.io; authored participant selections use local paths or full pinned Git revisions.
 
-## Publication
+## Distribution
 
-Each standalone package owns its release-plz configuration and committed application lockfile.
-The repository runs a small package matrix rather than sharing a workspace dependency selection.
-Review standard version/changelog PRs, then publish tested revisions to crates.io through release-plz.
-Package versions are independent; compatibility follows the interfaces each participant serves.
-Owners must be available publicly before dependent package locks and releases are accepted.
+Official participants are distributed through local paths or full pinned Git revisions, with `publish = false` in every package manifest.
+This convention also applies to the gamepad service and future participants.
+The [gamepad package](gamepad/README.md) has native deterministic qualification with pure-freeze Pause semantics and partial observed physical driving and desktop control/layout acceptance.
+Its README records the remaining directed controller, held-gesture and Linux device-input gates.
+Cargo can still resolve framework SDK and other Rust dependencies from crates.io.
+Each package retains its own committed application lockfile, executable, contract, and resources.
+Qualify the owner revision before updating robot Git pins, then rerun preparation, compiled checks, and runtime acceptance.
+There is no crates.io publication or release-plz workflow for these participant packages.

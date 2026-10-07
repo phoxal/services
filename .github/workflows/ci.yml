@@ -11,11 +11,15 @@ concurrency:
   cancel-in-progress: true
 jobs:
   package:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        package: [kinematics, motion, navigation, safety, world]
+        package: [gamepad, kinematics, motion, navigation, safety, world]
+        os: [ubuntu-latest]
+        include:
+          - package: gamepad
+            os: macos-latest
     defaults:
       run:
         working-directory: ${{ matrix.package }}
@@ -24,6 +28,9 @@ jobs:
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt, clippy
+      - name: Linux gamepad native dependencies
+        if: matrix.package == 'gamepad' && runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y pkg-config libudev-dev
       - run: cargo fmt -- --check
       - run: cargo test --locked --all-targets
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings

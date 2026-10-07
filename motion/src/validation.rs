@@ -1,10 +1,11 @@
 //! Private provider validation for generated Motion contract values.
 
+use phoxal::contracts::robotics::MotionSetpoint;
 use std::collections::HashSet;
 
 use crate::contract::{
     ApplyEmergencyResponse, ArmRequest, Constraint, ConstraintReason, ControlMode,
-    MotionConstraints, MotionIntent, Permission, ReleaseEmergencyRequest,
+    MotionConstraints, Permission, ReleaseEmergencyRequest,
 };
 use crate::drive::WheelCommands;
 use phoxal::contracts::component::actuator::Control;
@@ -28,7 +29,7 @@ pub enum ValidationError {
     InvalidEmergencyValue,
 }
 
-pub fn intent(value: &MotionIntent) -> Result<(), ValidationError> {
+pub fn intent(value: &MotionSetpoint) -> Result<(), ValidationError> {
     if !value.linear_x_mps.is_finite() || !value.angular_z_radps.is_finite() {
         return Err(ValidationError::NonFinite {
             wheel_name: "intent".to_owned(),
