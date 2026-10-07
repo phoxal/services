@@ -670,4 +670,163 @@ mod tests {
             GetGoalStatusResponse::UnknownOrNoLongerRetained(_)
         ));
     }
+
+    #[test]
+    fn active_goal_loses_authority_on_original_capture_expiry_and_updates_map_revision() {
+        let mut owner = owner();
+        supply_facts(&mut owner);
+        let start = owner
+            .enqueue_apply_command(start("active", 10.0, 0.0))
+            .unwrap();
+        owner.advance_to(Duration::ZERO).unwrap();
+        assert!(matches!(
+            owner.reply(start).unwrap(),
+            ApplyCommandResponse::Accepted
+        ));
+        assert_eq!(owner.status().unwrap().map_revision, Some(7));
+        owner
+            .inject_map(
+                map_revision(8, ExecutionTime::from_nanos(20_000_000))
+                    .into_sample()
+                    .unwrap(),
+            )
+            .unwrap();
+        owner.advance_to(Duration::from_millis(20)).unwrap();
+        assert_eq!(owner.status().unwrap().map_revision, Some(8));
+        owner.advance_to(Duration::from_millis(120)).unwrap();
+        let finished = owner.finished();
+        assert_eq!(finished.len(), 1);
+        assert_eq!(finished[0].outcome, GoalOutcome::Unavailable);
+        assert!(
+            finished[0]
+                .unavailable_reasons
+                .contains(&UnavailableReason::Localization)
+        );
+        owner.advance_to(Duration::from_millis(140)).unwrap();
+        assert!(owner.finished().is_empty());
+        // A newly published map does not rejuvenate the original capture.
+        owner
+            .inject_map(Sample::new(
+                MapState {
+                    revision: 9,
+                    available: true,
+                    oldest_capture_time_nanos: Some(0),
+                },
+                phoxal::runtime::ObservationStamp::new(
+                    "map",
+                    ExecutionTime::from_nanos(140_000_000),
+                    None,
+                ),
+            ))
+            .unwrap();
+        owner.advance_to(Duration::from_millis(160)).unwrap();
+        assert_eq!(owner.status().unwrap().map_revision, None);
+    }
+
+    #[test]
+    fn terminal_retention_eviction_and_reset_are_observed_through_generated_queries() {
+        let mut owner = owner();
+        supply_facts(&mut owner);
+        // Each real admitted Start/Cancel batch completes on its ordinary invocation.
+        for index in 0..=validation::TERMINAL_RESULT_RETENTION {
+            let start = owner
+                .enqueue_apply_command(start(&format!("goal-{index}"), 10.0, 0.0))
+                .unwrap();
+            let cancel = owner
+                .enqueue_apply_command(cancel(&format!("goal-{index}")))
+                .unwrap();
+            owner
+                .advance_to(Duration::from_millis(index as u64 * 20))
+                .unwrap();
+            // Refresh facts for the next normal invocation, without another participant.
+            let at = (index as u64 + 1) * 20_000_000;
+            owner
+                .inject_localization(Sample::new(
+                    OdometryState {
+                        available: true,
+                        oldest_capture_time_nanos: Some(at),
+                        ..Default::default()
+                    },
+                    phoxal::runtime::ObservationStamp::new(
+                        "pose",
+                        ExecutionTime::from_nanos(at),
+                        None,
+                    ),
+                ))
+                .unwrap();
+            owner
+                .inject_map(
+                    map_revision(7, ExecutionTime::from_nanos(at))
+                        .into_sample()
+                        .unwrap(),
+                )
+                .unwrap();
+            assert!(matches!(
+                owner.reply(start).unwrap(),
+                ApplyCommandResponse::Accepted
+            ));
+            assert!(matches!(
+                owner.reply(cancel).unwrap(),
+                ApplyCommandResponse::Accepted
+            ));
+            assert_eq!(owner.finished().len(), 1);
+        }
+        let old = owner.enqueue_get_goal_status(query("goal-0")).unwrap();
+        let recent = owner
+            .enqueue_get_goal_status(query(&format!(
+                "goal-{}",
+                validation::TERMINAL_RESULT_RETENTION
+            )))
+            .unwrap();
+        let at = (validation::TERMINAL_RESULT_RETENTION as u64 + 1) * 20;
+        owner.advance_to(Duration::from_millis(at)).unwrap();
+        assert!(matches!(
+            owner.reply(old).unwrap(),
+            GetGoalStatusResponse::UnknownOrNoLongerRetained(_)
+        ));
+        assert!(matches!(
+            owner.reply(recent).unwrap(),
+            GetGoalStatusResponse::Finished(_)
+        ));
+        owner.reset(config()).unwrap();
+        let query = owner
+            .enqueue_get_goal_status(query(&format!(
+                "goal-{}",
+                validation::TERMINAL_RESULT_RETENTION
+            )))
+            .unwrap();
+        owner.advance_to(Duration::from_millis(at)).unwrap();
+        assert!(matches!(
+            owner.reply(query).unwrap(),
+            GetGoalStatusResponse::UnknownOrNoLongerRetained(_)
+        ));
+        assert!(owner.finished().is_empty());
+    }
+
+    #[test]
+    fn invalid_goal_and_wrong_cancel_are_typed_refusals_without_mutation() {
+        let mut owner = owner();
+        supply_facts(&mut owner);
+        let invalid = owner.enqueue_apply_command(start("", 0.0, 0.0)).unwrap();
+        let start = owner
+            .enqueue_apply_command(start("active", 10.0, 0.0))
+            .unwrap();
+        let wrong = owner.enqueue_apply_command(cancel("other")).unwrap();
+        owner.advance_to(Duration::ZERO).unwrap();
+        assert!(
+            matches!(owner.reply(invalid).unwrap(), ApplyCommandResponse::Refused(value) if value.reason == RefusalReason::InvalidGoal)
+        );
+        assert!(matches!(
+            owner.reply(start).unwrap(),
+            ApplyCommandResponse::Accepted
+        ));
+        assert!(
+            matches!(owner.reply(wrong).unwrap(), ApplyCommandResponse::Refused(value) if value.reason == RefusalReason::UnknownGoal)
+        );
+        assert_eq!(
+            owner.status().unwrap().active_goal_id.as_deref(),
+            Some("active")
+        );
+        assert!(owner.finished().is_empty());
+    }
 }

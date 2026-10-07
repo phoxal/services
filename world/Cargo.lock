@@ -2068,14 +2068,8 @@ version = "0.0.0-dev.9"
 dependencies = [
  "anyhow",
  "phoxal",
- "prost",
  "serde",
- "serde_json",
- "sha2",
- "tempfile",
  "thiserror 2.0.21",
- "tokio",
- "zenoh",
 ]
 
 [[package]]

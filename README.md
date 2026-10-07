@@ -23,3 +23,18 @@ Cargo can still resolve framework SDK and other Rust dependencies from crates.io
 Each package retains its own committed application lockfile, executable, contract, and resources.
 Qualify the owner revision before updating robot Git pins, then rerun preparation, compiled checks, and runtime acceptance.
 There is no crates.io publication or release-plz workflow for these participant packages.
+
+## Independent tests and affected-package CI
+
+Each package runs its actual deterministic functionality with `cargo test --locked`, without another participant implementation, supervisor, router, native engine, hardware or wall-clock sleeps.
+Private runtime integration modules drive the real SDK Harness, generated adapters, typed admissions and logical scheduler; only external I/O is replaced explicitly before backend construction.
+Public subprocess/transport and physical robot acceptance are separate host boundaries.
+
+CI selects packages with `bash .github/scripts/affected-packages.sh --event pull_request --base BASE_SHA --head HEAD_SHA` for a PR merge-base comparison or `--event push` for a direct push range.
+Use `--all` for a local full selection; workflow_dispatch runs the full suite.
+Every top-level Cargo manifest is an independent package, including newly added packages.
+Renames consider both paths, removed package roots conservatively select all surviving packages, and shared scripts/workflows/toolchain inputs select all.
+Documentation-only changes skip Rust rebuilds, while test/fixture data and component model/assets select their owner regardless of file extension.
+Selector and final-gate regressions run with Bash 3.2 or newer, Git and jq using `bash .github/scripts/test-ci.sh`.
+Rust package jobs use the declared Rust 1.88 minimum, with Linux and macOS gamepad jobs where applicable.
+The always-run CI checks result rejects selection failure, unexpected skipped/cancelled/failed package jobs and successful zero-test or ignored-only runs.

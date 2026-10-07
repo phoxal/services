@@ -95,9 +95,9 @@ pub fn validate_config(config: &WorldConfig) -> phoxal::Result<()> {
     if !config.resolution_m.is_finite() || config.resolution_m <= 0.0 {
         return Err(anyhow::anyhow!("resolution_m must be finite and positive"));
     }
-    if config.max_age_ms == 0 || config.history_capacity == 0 {
+    if config.max_age_ms == 0 || !(1..=256).contains(&config.history_capacity) {
         return Err(anyhow::anyhow!(
-            "max_age_ms and history_capacity must be positive"
+            "max_age_ms must be positive and history_capacity must be between 1 and 256"
         ));
     }
     let cells = usize::try_from(config.width)
@@ -115,8 +115,52 @@ pub fn validate_config(config: &WorldConfig) -> phoxal::Result<()> {
     }
     let max_x_m = config.origin_x_m + f64::from(config.width) * config.resolution_m;
     let max_y_m = config.origin_y_m + f64::from(config.height) * config.resolution_m;
-    if !max_x_m.is_finite() || !max_y_m.is_finite() {
-        return Err(anyhow::anyhow!("world bounds must be finite"));
+    if !max_x_m.is_finite()
+        || !max_y_m.is_finite()
+        || max_x_m <= config.origin_x_m
+        || max_y_m <= config.origin_y_m
+    {
+        return Err(anyhow::anyhow!(
+            "world bounds must have finite, positive representable extents"
+        ));
+    }
+    // The implementation returns the complete grid even for a smaller requested
+    // rectangle. Admit only grids whose worst-case response fits the real contract.
+    use crate::contract::{Bounds, GridWindow, Occupancy, WindowResponse, WorldApi};
+    use phoxal::contracts::ProstPayload;
+    use phoxal::runtime::{RuntimeContract, input::InputSet};
+    let covered = Bounds {
+        min_x_m: config.origin_x_m,
+        min_y_m: config.origin_y_m,
+        max_x_m,
+        max_y_m,
+    };
+    let response = WindowResponse::Window(GridWindow {
+        frame_id: config.frame_id.clone(),
+        origin_x_m: config.origin_x_m,
+        origin_y_m: config.origin_y_m,
+        resolution_m: config.resolution_m,
+        width: config.width,
+        height: config.height,
+        cells: vec![Occupancy::Unknown; cells],
+        revision: u64::MAX,
+        requested: Some(Bounds {
+            min_x_m: f64::MAX,
+            min_y_m: f64::MAX,
+            max_x_m: f64::MAX,
+            max_y_m: f64::MAX,
+        }),
+        covered: Some(covered),
+    });
+    let bound = <WorldApi as RuntimeContract>::Inputs::FIELDS
+        .iter()
+        .find(|field| field.name == "window")
+        .and_then(|field| field.max_bytes)
+        .ok_or_else(|| anyhow::anyhow!("World window contract has no response bound"))?;
+    if response.encode_payload()?.len() as u64 > bound {
+        return Err(anyhow::anyhow!(
+            "complete World grid exceeds window response bound of {bound} bytes"
+        ));
     }
     Ok(())
 }

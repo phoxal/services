@@ -320,3 +320,71 @@ fn invalid_new_encoder_replaces_old_evidence_until_a_new_valid_capture() {
         Some(20_000_000)
     );
 }
+
+fn lookup(revision: u64) -> LookupFrameRequest {
+    LookupFrameRequest {
+        parent_frame_id: "odom".into(),
+        child_frame_id: "base_link".into(),
+        revision,
+    }
+}
+
+#[test]
+fn lookup_handler_integrates_once_and_retention_does_not_reemit_joint_samples() {
+    let mut service = new_service(config());
+    assert_eq!(service.odometry().unwrap().revision, 0);
+    assert!(service.joints().is_empty());
+    for side in ["left_encoder", "right_encoder"] {
+        service.inject_encoders(sample(side, 1.0, 4.0, 0)).unwrap();
+    }
+    let call = service.enqueue_lookup_frame(lookup(0)).unwrap();
+    service.advance_to(std::time::Duration::ZERO).unwrap();
+    assert_eq!(service.reply(call).unwrap().revision, 1);
+    assert_eq!(service.odometry().unwrap().revision, 1);
+    assert_eq!(service.joints().len(), 2);
+    service
+        .advance_to(std::time::Duration::from_millis(19))
+        .unwrap();
+    assert_eq!(service.odometry().unwrap().revision, 1);
+    service
+        .advance_to(std::time::Duration::from_millis(20))
+        .unwrap();
+    assert!(service.joints().is_empty());
+    assert!((service.odometry().unwrap().x_m - 0.008).abs() < 1e-12);
+}
+
+#[test]
+fn lookup_current_history_unknown_eviction_and_reset() {
+    let mut cfg = config();
+    cfg.history_capacity = 2;
+    let mut service = new_service(cfg.clone());
+    for side in ["left_encoder", "right_encoder"] {
+        service.inject_encoders(sample(side, 1.0, 4.0, 0)).unwrap();
+    }
+    service.advance_to(std::time::Duration::ZERO).unwrap();
+    let old = service.enqueue_lookup_frame(lookup(1)).unwrap();
+    service
+        .advance_to(std::time::Duration::from_millis(20))
+        .unwrap();
+    assert_eq!(service.reply(old).unwrap().transform.unwrap().x_m, 0.0);
+    let old = service.enqueue_lookup_frame(lookup(1)).unwrap();
+    let current = service.enqueue_lookup_frame(lookup(0)).unwrap();
+    let mut missing = lookup(0);
+    missing.child_frame_id = "missing".into();
+    let missing = service.enqueue_lookup_frame(missing).unwrap();
+    service
+        .advance_to(std::time::Duration::from_millis(40))
+        .unwrap();
+    assert!(service.reply(old).unwrap().transform.is_none());
+    assert_eq!(service.reply(current).unwrap().revision, 3);
+    assert!(service.reply(missing).unwrap().transform.is_none());
+    service.reset(cfg).unwrap();
+    assert_eq!(service.odometry().unwrap().revision, 0);
+    assert_eq!(service.odometry().unwrap().x_m, 0.0);
+    assert!(!service.odometry().unwrap().available);
+    service
+        .advance_to(std::time::Duration::from_millis(40))
+        .unwrap();
+    assert!(service.joints().is_empty());
+    assert!(!service.odometry().unwrap().available);
+}

@@ -24,14 +24,6 @@ thiserror = { version = "2.0.18" }
 anyhow = { version = "1.0.102" }
 serde = { version = "1.0.228", features = ["derive"] }
 
-[dev-dependencies]
-prost = { version = "0.14.4" }
-serde_json = { version = "1.0.149" }
-sha2 = { version = "0.10.9" }
-tempfile = { version = "3.27.0" }
-tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time", "signal", "sync", "fs", "process"] }
-zenoh = { version = "=1.9.0", default-features = false, features = ["auth_pubkey", "auth_usrpwd", "transport_multilink", "transport_quic", "transport_quic_datagram", "transport_tcp", "transport_tls", "transport_udp", "transport_unixsock-stream", "transport_ws"] }
-
 [lints.rust]
 unused = "warn"
 [lints.clippy]
@@ -39,11 +31,3 @@ unwrap_used = "deny"
 expect_used = "deny"
 todo = "deny"
 unimplemented = "deny"
-
-[features]
-host-acceptance = []
-
-[[test]]
-name = "runtime_transport"
-path = "tests/runtime_transport.rs"
-required-features = ["host-acceptance"]

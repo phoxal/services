@@ -19,3 +19,9 @@ The oldest source capture remains explicit in odometry and is never renewed by r
 Missing, invalid, or stale required wheel evidence makes odometry unavailable.
 Only newly captured joint samples are published as Samples.
 Frame history has an explicit maximum of 256 entries.
+
+## Deterministic package qualification
+
+Run `cargo test --locked`, `cargo fmt --check`, and `cargo clippy --locked --all-targets -- -D warnings` from this package.
+Tests admit measured encoder batches into the actual runtime, check constant-turn and four-wheel calibration, original capture freshness, invalid replacement, newly emitted versus retained joint samples, and current/history/evicted frame queries.
+A frame handler and periodic step apply a capture once per invocation, and reset clears integrated pose, retained measurements and history.

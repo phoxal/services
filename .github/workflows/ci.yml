@@ -10,27 +10,63 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  select:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      packages: ${{ steps.select.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: bash .github/scripts/test-ci.sh
+      - id: select
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          bash .github/scripts/affected-packages.sh --event "$EVENT" --base "$BASE" --head "$HEAD" > selection.json
+          cat selection.json
+          printf 'matrix=%s\n' "$(jq -c .matrix selection.json)" >> "$GITHUB_OUTPUT"
+          printf 'packages=%s\n' "$(jq -c .packages selection.json)" >> "$GITHUB_OUTPUT"
   package:
+    needs: select
+    if: needs.select.outputs.packages != '[]'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        package: [gamepad, kinematics, motion, navigation, safety, world]
-        os: [ubuntu-latest]
-        include:
-          - package: gamepad
-            os: macos-latest
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
     defaults:
       run:
         working-directory: ${{ matrix.package }}
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
+          toolchain: '1.88.0'
           components: rustfmt, clippy
       - name: Linux gamepad native dependencies
         if: matrix.package == 'gamepad' && runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y pkg-config libudev-dev
       - run: cargo fmt -- --check
-      - run: cargo test --locked --all-targets
+      - name: Run actual ordinary package tests
+        run: |
+          cargo test --locked --all-targets 2>&1 | tee "$RUNNER_TEMP/participant-tests.log"
+          bash ../.github/scripts/check-test-output.sh "$RUNNER_TEMP/participant-tests.log"
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
+  checks:
+    name: CI checks
+    if: always()
+    needs: [select, package]
+    runs-on: ubuntu-latest
+    env:
+      SELECTION: ${{ needs.select.result }}
+      PACKAGES: ${{ needs.select.outputs.packages }}
+      PACKAGE_RESULT: ${{ needs.package.result }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify every selected package completed
+        run: |
+          bash .github/scripts/check-selection.sh "$SELECTION" "$PACKAGES" "$PACKAGE_RESULT"

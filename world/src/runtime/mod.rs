@@ -439,4 +439,175 @@ mod tests {
         };
         assert!(Harness::<World>::new(config).is_err());
     }
+
+    fn window_request(revision: u64) -> WindowRequest {
+        WindowRequest {
+            requested: Some(Bounds {
+                min_x_m: 0.0,
+                min_y_m: 0.0,
+                max_x_m: 1.0,
+                max_y_m: 1.0,
+            }),
+            revision,
+        }
+    }
+
+    #[test]
+    fn window_handler_and_step_share_one_pose_revision_and_respect_cadence() {
+        let mut world = Harness::<World>::new(WorldConfig::default()).unwrap();
+        assert_eq!(world.revision().unwrap().revision, 0);
+        world
+            .inject_pose(pose(0, 7).into_sample().unwrap())
+            .unwrap();
+        let call = world.enqueue_window(window_request(0)).unwrap();
+        assert!(world.reply(call.clone()).is_err());
+        assert_eq!(world.advance_to(std::time::Duration::ZERO).unwrap(), 1);
+        let WindowResponse::Window(window) = world.reply(call).unwrap() else {
+            panic!("fresh window")
+        };
+        assert_eq!(window.revision, 1, "handler and step must not apply twice");
+        assert_eq!(world.belief().unwrap().revision, 1);
+        assert!(window.cells.iter().all(|cell| *cell == Occupancy::Unknown));
+        world
+            .advance_to(std::time::Duration::from_millis(19))
+            .unwrap();
+        assert_eq!(world.revision().unwrap().revision, 1);
+        world
+            .advance_to(std::time::Duration::from_millis(20))
+            .unwrap();
+        assert_eq!(world.revision().unwrap().revision, 2);
+    }
+
+    #[test]
+    fn window_current_history_eviction_bounds_and_reset_use_real_calls() {
+        let cfg = WorldConfig {
+            history_capacity: 2,
+            ..Default::default()
+        };
+        let mut world = Harness::<World>::new(cfg.clone()).unwrap();
+        world
+            .inject_pose(pose(0, 7).into_sample().unwrap())
+            .unwrap();
+        world.advance_to(std::time::Duration::ZERO).unwrap();
+        let old = world.enqueue_window(window_request(1)).unwrap();
+        world
+            .advance_to(std::time::Duration::from_millis(20))
+            .unwrap();
+        let WindowResponse::Window(old) = world.reply(old).unwrap() else {
+            panic!("retained revision")
+        };
+        assert_eq!(old.revision, 1);
+        let evicted = world.enqueue_window(window_request(1)).unwrap();
+        let current = world.enqueue_window(window_request(0)).unwrap();
+        let mut outside = window_request(0);
+        outside.requested.as_mut().unwrap().min_x_m = -0.1;
+        let outside = world.enqueue_window(outside).unwrap();
+        world
+            .advance_to(std::time::Duration::from_millis(40))
+            .unwrap();
+        assert!(
+            matches!(world.reply(evicted).unwrap(), WindowResponse::Unavailable(value) if value.reason == WindowUnavailableReason::RevisionNotRetained)
+        );
+        assert!(
+            matches!(world.reply(current).unwrap(), WindowResponse::Window(value) if value.revision == 3)
+        );
+        assert!(
+            matches!(world.reply(outside).unwrap(), WindowResponse::Unavailable(value) if value.reason == WindowUnavailableReason::OutOfBounds)
+        );
+        let pending = world.enqueue_window(window_request(0)).unwrap();
+        world.reset(cfg).unwrap();
+        assert!(world.reply(pending).is_err());
+        assert_eq!(world.revision().unwrap().revision, 0);
+        let unavailable = world.enqueue_window(window_request(1)).unwrap();
+        world
+            .advance_to(std::time::Duration::from_millis(40))
+            .unwrap();
+        assert!(
+            matches!(world.reply(unavailable).unwrap(), WindowResponse::Unavailable(value) if value.reason == WindowUnavailableReason::WorldUnavailable)
+        );
+    }
+
+    #[test]
+    fn oversized_complete_grid_and_unbounded_history_are_rejected_before_runtime() {
+        for cfg in [
+            WorldConfig {
+                width: 256,
+                height: 256,
+                ..Default::default()
+            },
+            WorldConfig {
+                history_capacity: 257,
+                ..Default::default()
+            },
+        ] {
+            assert!(Harness::<World>::new(cfg).is_err());
+        }
+        let cfg = WorldConfig {
+            width: 64,
+            height: 128,
+            history_capacity: 256,
+            ..Default::default()
+        };
+        let mut world = Harness::<World>::new(cfg).unwrap();
+        world
+            .inject_pose(pose(0, 7).into_sample().unwrap())
+            .unwrap();
+        let call = world.enqueue_window(window_request(0)).unwrap();
+        world.advance_to(std::time::Duration::ZERO).unwrap();
+        assert!(
+            matches!(world.reply(call).unwrap(), WindowResponse::Window(value) if value.cells.len() == 8192)
+        );
+    }
+    #[test]
+    fn near_reply_limit_interior_request_and_unrepresentable_extent_are_safe() {
+        let width = (16_000..16_400)
+            .rev()
+            .find(|width| {
+                validate_config(&WorldConfig {
+                    width: *width,
+                    height: 1,
+                    ..Default::default()
+                })
+                .is_ok()
+            })
+            .unwrap();
+        assert!(
+            validate_config(&WorldConfig {
+                width: width + 1,
+                height: 1,
+                ..Default::default()
+            })
+            .is_err()
+        );
+        let mut world = Harness::<World>::new(WorldConfig {
+            width,
+            height: 1,
+            ..Default::default()
+        })
+        .unwrap();
+        world
+            .inject_pose(pose(0, 7).into_sample().unwrap())
+            .unwrap();
+        let request = WindowRequest {
+            revision: 0,
+            requested: Some(Bounds {
+                min_x_m: 0.1,
+                min_y_m: 0.01,
+                max_x_m: 0.2,
+                max_y_m: 0.02,
+            }),
+        };
+        let call = world.enqueue_window(request).unwrap();
+        world.advance_to(std::time::Duration::ZERO).unwrap();
+        assert!(
+            matches!(world.reply(call).unwrap(), WindowResponse::Window(value) if value.cells.len() == width as usize)
+        );
+        assert!(
+            Harness::<World>::new(WorldConfig {
+                origin_x_m: 1e100,
+                ..Default::default()
+            })
+            .is_err()
+        );
+    }
 }
