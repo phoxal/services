@@ -79,15 +79,6 @@ pub fn harness(frame: Arc<Mutex<Frame>>) -> phoxal::Result<LocalHarness> {
     )
 }
 
-/// Launch the explicit fixture adapter, without ambient input selection.
-#[allow(
-    dead_code,
-    reason = "used by the standalone native qualification target"
-)]
-pub fn launch(input: impl Fn() -> Box<dyn Input> + Send + Sync + 'static) -> phoxal::Result<()> {
-    phoxal::runtime::run_registered(Fixture::new(input))
-}
-
 #[cfg(test)]
 mod initialization_tests {
     use super::*;

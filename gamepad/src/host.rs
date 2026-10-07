@@ -137,29 +137,3 @@ fn gilrs_button(button: Button) -> GilrsButton {
         Button::East => GilrsButton::East,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    #[ignore = "requires a native OS gamepad backend; does not qualify physical driving"]
-    fn native_backend_snapshot() {
-        let mut host = Host::new().expect("native backend initializes");
-        let mut frame = host.poll(&Config::default());
-        // Native device enumeration can arrive asynchronously after backend
-        // construction. This bounded host qualification samples that startup.
-        for _ in 0..50 {
-            if !frame.devices.is_empty() || frame.fault.is_some() {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(20));
-            frame = host.poll(&Config::default());
-        }
-        println!("native OS snapshot after bounded enumeration: {frame:?}");
-        assert!(
-            frame.fault.is_none(),
-            "native bounded polling fault: {:?}",
-            frame.fault
-        );
-    }
-}

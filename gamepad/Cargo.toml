@@ -32,8 +32,3 @@ unwrap_used = "deny"
 expect_used = "deny"
 todo = "deny"
 unimplemented = "deny"
-
-[[test]]
-name = "native_process"
-path = "tests/native_process.rs"
-harness = false

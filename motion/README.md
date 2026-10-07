@@ -60,3 +60,10 @@ Simulation Pause freezes admitted authority and logical leases; normal schedulin
 Runtime qualification uses ordinary typed contract outputs and supervisor/native boundary evidence.
 The production runtime contains no test environment selectors or trace-file I/O.
 External gamepad qualification runs this ordinary executable rather than a diagnostic runtime variant.
+
+## Deterministic package qualification
+
+Run `cargo test --locked`, `cargo fmt --check`, and `cargo clippy --locked --all-targets -- -D warnings` from this package.
+Tests drive actual typed arm/disarm/emergency admissions, authenticated intent ownership, single-source logical leases, invalid intent and protective expiry, configured limits and every calibrated named wheel output.
+Cadence tests distinguish bootstrap status from step-only actuation, and reset returns authority to Disarmed with no retained command.
+Optional connected protective evidence is separately validated by the owning input-facts tests; these tests do not establish physical motor writes or native robot dynamics.

@@ -252,8 +252,159 @@ mod tests {
                 .is_none()
         );
     }
+
+    fn pending_arm(
+        frame: &Arc<Mutex<Frame>>,
+    ) -> (
+        LocalHarness,
+        phoxal::runtime::HarnessRequest<ArmRequest, ApplyEmergencyResponse>,
+    ) {
+        let mut runtime = harness(frame);
+        assert!(runtime.intent().is_none());
+        runtime.advance_to(Duration::ZERO).unwrap();
+        *frame.lock().unwrap() = input(true, 0.0);
+        runtime.advance_to(Duration::from_millis(39)).unwrap();
+        assert_eq!(runtime.status().unwrap().phase, Phase::Priming);
+        runtime.advance_to(Duration::from_millis(40)).unwrap();
+        let request = runtime
+            .take_request::<ArmRequest, ApplyEmergencyResponse>("arm_motion")
+            .unwrap()
+            .unwrap();
+        (runtime, request)
+    }
+
+    #[test]
+    fn correlated_refusal_not_sent_and_unknown_results_withdraw_without_rearming() {
+        for result in [
+            Ok(ApplyEmergencyResponse::Refused(
+                crate::contract::motion::EmergencyRefused {
+                    reason: crate::contract::motion::EmergencyRefusalReason::ProtectiveState,
+                },
+            )),
+            Err(RequestError::NotSent("fixture route unavailable".into())),
+            Err(RequestError::RejectedBeforeAdmission(
+                "fixture admission refusal".into(),
+            )),
+            Err(RequestError::Timeout),
+        ] {
+            let frame = Arc::new(Mutex::new(input(false, 0.0)));
+            let (mut runtime, request) = pending_arm(&frame);
+            let uncertain = matches!(result, Err(RequestError::Timeout));
+            runtime.complete_request(&request, result).unwrap();
+            runtime.advance_to(Duration::from_millis(60)).unwrap();
+            assert!(runtime.intent().is_none());
+            assert_eq!(
+                runtime.status().unwrap().phase,
+                if uncertain {
+                    Phase::Fault
+                } else {
+                    Phase::ReleaseRequired
+                }
+            );
+            let cleanup = runtime
+                .take_request::<Empty, ApplyEmergencyResponse>("disarm_motion")
+                .unwrap();
+            assert_eq!(cleanup.is_some(), uncertain);
+            runtime.advance_to(Duration::from_millis(80)).unwrap();
+            assert!(
+                runtime
+                    .take_request::<ArmRequest, ApplyEmergencyResponse>("arm_motion")
+                    .unwrap()
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn release_before_late_arm_success_cleans_up_again_using_actual_tickets() {
+        let frame = Arc::new(Mutex::new(input(false, 0.0)));
+        let (mut runtime, arm) = pending_arm(&frame);
+        *frame.lock().unwrap() = input(false, 0.0);
+        runtime.advance_to(Duration::from_millis(60)).unwrap();
+        let disarm = runtime
+            .take_request::<Empty, ApplyEmergencyResponse>("disarm_motion")
+            .unwrap()
+            .unwrap();
+        runtime
+            .complete_request(&disarm, Ok(ApplyEmergencyResponse::Accepted))
+            .unwrap();
+        runtime.advance_to(Duration::from_millis(80)).unwrap();
+        runtime
+            .complete_request(&arm, Ok(ApplyEmergencyResponse::Accepted))
+            .unwrap();
+        *frame.lock().unwrap() = input(true, 0.0);
+        runtime.advance_to(Duration::from_millis(100)).unwrap();
+        assert!(runtime.intent().is_none());
+        let cleanup = runtime
+            .take_request::<Empty, ApplyEmergencyResponse>("disarm_motion")
+            .unwrap()
+            .unwrap();
+        runtime
+            .complete_request(&cleanup, Ok(ApplyEmergencyResponse::Accepted))
+            .unwrap();
+        runtime.advance_to(Duration::from_millis(120)).unwrap();
+        assert_eq!(runtime.status().unwrap().phase, Phase::ReleaseRequired);
+        assert!(
+            runtime
+                .take_request::<ArmRequest, ApplyEmergencyResponse>("arm_motion")
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn sampled_disconnect_fault_and_reconnect_withdraw_through_real_owner() {
+        for lost in [
+            Frame::default(),
+            Frame {
+                fault: Some("event queue overflow".into()),
+                ..Default::default()
+            },
+        ] {
+            let frame = Arc::new(Mutex::new(input(false, 0.0)));
+            let (mut runtime, arm) = pending_arm(&frame);
+            runtime
+                .complete_request(&arm, Ok(ApplyEmergencyResponse::Accepted))
+                .unwrap();
+            *frame.lock().unwrap() = input(true, 1.0);
+            runtime.advance_to(Duration::from_millis(60)).unwrap();
+            assert_eq!(runtime.intent().unwrap().linear_x_mps, 0.5);
+            *frame.lock().unwrap() = lost;
+            runtime.advance_to(Duration::from_millis(79)).unwrap();
+            assert_eq!(
+                runtime.intent().unwrap().linear_x_mps,
+                0.5,
+                "external changes wait for normal cadence"
+            );
+            runtime.advance_to(Duration::from_millis(80)).unwrap();
+            assert!(runtime.intent().is_none());
+            let cleanup = runtime
+                .take_request::<Empty, ApplyEmergencyResponse>("disarm_motion")
+                .unwrap()
+                .unwrap();
+            runtime
+                .complete_request(&cleanup, Ok(ApplyEmergencyResponse::Accepted))
+                .unwrap();
+            let mut reconnect = input(true, 0.0);
+            reconnect.devices[0].key.incarnation = 1;
+            *frame.lock().unwrap() = reconnect;
+            runtime.advance_to(Duration::from_millis(100)).unwrap();
+            assert_eq!(runtime.status().unwrap().phase, Phase::ReleaseRequired);
+            assert!(runtime.intent().is_none());
+            *frame.lock().unwrap() = input(false, 0.0);
+            runtime.advance_to(Duration::from_millis(120)).unwrap();
+            *frame.lock().unwrap() = input(true, 0.0);
+            runtime.advance_to(Duration::from_millis(160)).unwrap();
+            assert!(
+                runtime
+                    .take_request::<ArmRequest, ApplyEmergencyResponse>("arm_motion")
+                    .unwrap()
+                    .is_some()
+            );
+        }
+    }
 }
 
 #[cfg(test)]
-#[path = "../tests/support/runtime.rs"]
-pub(crate) mod fixture;
+#[path = "runtime/fixture.rs"]
+mod fixture;

@@ -457,3 +457,56 @@ fn retained_ranges_are_bounded_by_configured_membership() {
         assert_eq!(state.ranges.len(), 2);
     }
 }
+
+#[test]
+fn reset_discards_retained_range_and_cadence_does_not_renew_capture() {
+    let cfg = SafetyConfig {
+        ranges: vec![required_range("front")],
+        ..Default::default()
+    };
+    let mut service = step(
+        new_service(cfg.clone()),
+        &context(0, 0, None),
+        &clear_inputs(0),
+    );
+    let initial = service.constraints().unwrap();
+    assert_eq!(initial.permission, Permission::Clear);
+    service
+        .advance_to(std::time::Duration::from_millis(19))
+        .unwrap();
+    assert_eq!(service.constraints().unwrap().sequence, initial.sequence);
+    service
+        .advance_to(std::time::Duration::from_millis(20))
+        .unwrap();
+    assert_eq!(
+        service.constraints().unwrap().oldest_capture_time_nanos,
+        Some(0)
+    );
+    assert!(service.constraints().unwrap().expires_at_nanos <= 100_000_000);
+    service.reset(cfg).unwrap();
+    let mut inputs = clear_inputs(20);
+    inputs.ranges = Samples::default();
+    service
+        .inject_world(inputs.world.into_sample().unwrap())
+        .unwrap();
+    service
+        .inject_world_revision(inputs.world_revision.into_sample().unwrap())
+        .unwrap();
+    service
+        .inject_motion(inputs.motion.into_sample().unwrap())
+        .unwrap();
+    service
+        .advance_to(std::time::Duration::from_millis(20))
+        .unwrap();
+    assert_eq!(
+        service.constraints().unwrap().permission,
+        Permission::Stopped
+    );
+    assert!(
+        service
+            .status()
+            .unwrap()
+            .reasons
+            .contains(&ConstraintReason::RangeUnavailable)
+    );
+}

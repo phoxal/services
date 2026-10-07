@@ -77,9 +77,11 @@ Runtime Harness tests exercise the actual generated runtime owner, calls, accept
 They do not by themselves qualify native supervisor pause/resume ordering or a physical controller.
 The package is publish=false and distributed only through qualified Git or local source acquisition.
 
-A harness-free native_process Cargo test target reuses these real private modules for explicit native qualification.
-Only cfg(test) enables its bounded file-backed input adapter and diagnostics; production has no fake backend flag or environment switch.
-The native worker qualification retains actual accepted/delivery/native-control evidence and is independent of a physical controller.
+The former native_process/FileInput host fixture is retired, and its historical supervisor/native twelve-case logs qualify only the retained historical source and artifacts.
+Those old fixture commands are no longer runnable in this package.
+Ordinary tests now use only private in-process fixture modules beside the runtime and never initialize gilrs, transport or a native engine.
+They exercise correlated Accepted/refused/not-sent/unknown replies, release-before-late-arm cleanup, sampled disconnect/backend loss/reconnect, neutral reengagement, logical timeout, cadence and reset through the real generated owner.
+They establish local typed admission and output semantics, not native supervisor ordering or physical controller acceptance.
 
 ## Native Linux qualification
 
@@ -130,17 +132,12 @@ The runtime's private `Input` boundary supplies one bounded OS frame per normal 
 The fixture delegates dispatch, reset, endpoint encoding and accepted/discarded ownership to the generated adapter.
 No alternate control state machine or scheduler implements the test runtime.
 
-The harness-free `native_process` target is an explicit qualification executable using the same private runtime modules and compiled contract.
-Its standard supervisor `--bundle-root` argument identifies a fixture-owned `gamepad-fixture.input` file inside that disposable bundle directory.
-Only `tests/support/file_input.rs` interprets that bounded file, with released, held, drive, disconnected, release_repress, reconnected_held and reconnected_released fixture states.
-There is no service configuration option, environment selector, or production fake backend.
-The simulator's existing test-owned external-source driver orchestrates the file and typed worker commands and captures actual boundary products, delivery cuts and native actuator receipts.
-Motion is the ordinary production executable, with no inline runtime trace instrumentation.
-Historical trace logs qualify their historical source revision only.
-The current native proof runner and final artifact hashes must be retained alongside each qualification result.
+Historical native qualification reused the real private modules through the now-retired native_process/FileInput fixture.
+The current private input fixture delegates dispatch, projection, reset and accepted/discarded ownership to the generated adapter without an alternate runtime or scheduler.
+The recorded twelve native cases remain historical evidence; the current in-process tests do not replace native boundary-ordering proof.
 
-After removing inline test instrumentation and correcting fixture initialization before native backend construction, the current source was freshly qualified natively on Linux aarch64 with Rust 1.88.0 in the pinned image above.
-All thirteen gamepad tests, strict Clippy/format/docs, optimized build and no-device gilrs startup pass.
+After removing inline test instrumentation and correcting fixture initialization before native backend construction, that historical source was freshly qualified natively on Linux aarch64 with Rust 1.88.0 in the pinned image above.
+That recorded run passed thirteen gamepad tests, strict Clippy/format/docs, optimized build and no-device gilrs startup.
 Earlier eleven-test logs qualify their historical revisions and are retained separately.
 Strict extraction of actual gamepad and Motion release ELFs retains complete descriptor closures, and compiled runtime/configuration records are unchanged.
 Input fixtures use explicit test-owned dependencies; the normal production backend and source package remain the qualified implementation.
@@ -152,7 +149,8 @@ The fixture resets and delegates the real generated adapter, including projectio
 An explicit Linux process observer protects that boundary without participant hooks:
 
 ```sh
-python3 tests/input_isolation.py /path/to/unit-test-binary /tmp/gamepad-input-isolation.trace
+rustc --edition=2021 tests/fixtures/input_isolation.rs -o /tmp/gamepad-input-isolation
+/tmp/gamepad-input-isolation /path/to/unit-test-binary /tmp/gamepad-input-isolation.trace
 ```
 
 This invokes strace around only the focused initialization/reset test and rejects native AF_NETLINK setup.

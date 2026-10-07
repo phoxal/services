@@ -1451,4 +1451,126 @@ mod tests {
         assert!(status.emergency_latched);
         assert!(status.stopped);
     }
+
+    #[test]
+    fn configured_scalar_wheels_publish_only_on_normal_steps_and_reset_disarms() {
+        let cfg = config();
+        let mut runtime = new_arbiter(cfg.clone());
+        assert_eq!(runtime.status().unwrap().mode, ControlMode::Disarmed);
+        assert!(runtime.wheels("left").is_none());
+        runtime
+            .inject_manual(manual_intent("gamepad", 0.2, 0.0, at(0)))
+            .unwrap();
+        let arm = runtime
+            .inject_arm(Command::with_source_order(
+                CommandOrder::new(0, 0, CommandId::new(1)),
+                "gamepad.arm_motion",
+                ArmRequest {
+                    mode: ControlMode::Manual,
+                },
+            ))
+            .unwrap();
+        assert!(runtime.reply(arm.clone()).is_err());
+        runtime.advance_to(std::time::Duration::ZERO).unwrap();
+        assert_eq!(
+            runtime.reply(arm).unwrap(),
+            ApplyEmergencyResponse::Accepted
+        );
+        let left = runtime.wheels("left").unwrap();
+        assert_eq!(
+            left.control,
+            Some(phoxal::contracts::component::actuator::Control::VelocityRadps(0.2 / 0.11))
+        );
+        runtime
+            .inject_manual(manual_intent("gamepad", -0.2, 0.0, at(19_000_000)))
+            .unwrap();
+        runtime
+            .advance_to(std::time::Duration::from_millis(19))
+            .unwrap();
+        assert_eq!(runtime.wheels("left").unwrap().control, left.control);
+        runtime
+            .advance_to(std::time::Duration::from_millis(20))
+            .unwrap();
+        assert_eq!(
+            runtime.wheels("left").unwrap().control,
+            Some(phoxal::contracts::component::actuator::Control::VelocityRadps(-0.2 / 0.11))
+        );
+        runtime.reset(cfg).unwrap();
+        assert_eq!(runtime.status().unwrap().mode, ControlMode::Disarmed);
+        assert!(runtime.wheels("left").is_none());
+        runtime
+            .advance_to(std::time::Duration::from_millis(20))
+            .unwrap();
+        assert_eq!(
+            runtime.wheels("left").unwrap().control,
+            Some(phoxal::contracts::component::actuator::Control::VelocityRadps(0.0))
+        );
+    }
+
+    #[test]
+    fn protective_expiry_and_invalid_intent_stop_actual_admitted_wheel_outputs() {
+        for invalid in [false, true] {
+            let mut runtime = new_arbiter(config());
+            runtime
+                .inject_manual(manual_intent("gamepad", 0.2, 0.0, at(0)))
+                .unwrap();
+            runtime
+                .inject_safety(safety_state(true, at(0)).into_sample().unwrap())
+                .unwrap();
+            let arm = runtime
+                .inject_arm(Command::with_source_order(
+                    CommandOrder::new(0, 0, CommandId::new(1)),
+                    "gamepad.arm_motion",
+                    ArmRequest {
+                        mode: ControlMode::Manual,
+                    },
+                ))
+                .unwrap();
+            runtime.advance_to(std::time::Duration::ZERO).unwrap();
+            assert_eq!(
+                runtime.reply(arm).unwrap(),
+                ApplyEmergencyResponse::Accepted
+            );
+            assert!(!runtime.status().unwrap().stopped);
+            if invalid {
+                runtime
+                    .advance_to(std::time::Duration::from_millis(19))
+                    .unwrap();
+                assert_eq!(runtime.status().unwrap().mode, ControlMode::Manual);
+                assert!(!runtime.status().unwrap().stopped);
+                runtime
+                    .inject_manual(manual_intent("gamepad", f64::NAN, 0.0, at(19_000_000)))
+                    .unwrap();
+                runtime
+                    .advance_to(std::time::Duration::from_millis(20))
+                    .unwrap();
+            } else {
+                runtime
+                    .advance_to(std::time::Duration::from_millis(80))
+                    .unwrap();
+                assert_eq!(runtime.status().unwrap().mode, ControlMode::Manual);
+                assert!(!runtime.status().unwrap().stopped);
+                runtime
+                    .inject_manual(manual_intent("gamepad", 0.2, 0.0, at(80_000_000)))
+                    .unwrap();
+                runtime
+                    .advance_to(std::time::Duration::from_millis(99))
+                    .unwrap();
+                assert_eq!(runtime.status().unwrap().mode, ControlMode::Manual);
+                assert!(!runtime.status().unwrap().stopped);
+                // Renewed intent remains valid until180ms, isolating Safety's100ms expiry.
+                runtime
+                    .advance_to(std::time::Duration::from_millis(100))
+                    .unwrap();
+            }
+            assert_eq!(runtime.status().unwrap().mode, ControlMode::Disarmed);
+            assert!(runtime.status().unwrap().stopped);
+            for wheel in ["left", "right"] {
+                assert_eq!(
+                    runtime.wheels(wheel).unwrap().control,
+                    Some(phoxal::contracts::component::actuator::Control::VelocityRadps(0.0))
+                );
+            }
+        }
+    }
 }
