@@ -1,0 +1,10 @@
+[package]
+name = "phoxal-gamepad-public-observer-fixture"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+publish = false
+
+[dependencies]
+phoxal = { version = "0.71.0", default-features = false, features = ["runtime", "session"] }
+tokio = { version = "1.48.0", features = ["macros", "rt-multi-thread", "time"] }

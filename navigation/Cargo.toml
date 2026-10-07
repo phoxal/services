@@ -4,7 +4,7 @@ version = "0.0.0-dev.9"
 edition = "2024"
 rust-version = "1.88"
 license = "AGPL-3.0-only"
-publish = true
+publish = false
 description = "Phoxal navigation service executable and packaged API."
 documentation = "https://github.com/phoxal/services#readme"
 homepage = "https://github.com/phoxal/services"
@@ -16,10 +16,10 @@ name = "phoxal-service-navigation"
 path = "src/main.rs"
 
 [build-dependencies]
-phoxal = { version = "0.70.0", default-features = false, features = ["build"] }
+phoxal = { version = "0.71.0", default-features = false, features = ["build"] }
 
 [dependencies]
-phoxal = { version = "0.70.0", default-features = false, features = ["runtime"] }
+phoxal = { version = "0.71.0", default-features = false, features = ["runtime"] }
 thiserror = { version = "2.0.18" }
 anyhow = { version = "1.0.102" }
 serde = { version = "1.0.228", features = ["derive"] }

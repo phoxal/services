@@ -1,11 +1,11 @@
 #[cfg(test)]
 type MotionInputs = <crate::contract::MotionApi as phoxal::runtime::RuntimeContract>::Inputs;
-use phoxal::contracts::robotics::OdometryState;
+use phoxal::contracts::robotics::{MotionSetpoint, OdometryState};
 
 use crate::config::{MotionConfig, validate_motion_config};
 use crate::contract::{
     ApplyEmergencyResponse, ArmRequest, ControlMode, EmergencyRefusalReason, EmergencyRefused,
-    MotionIntent, MotionStatus, ReleaseEmergencyRequest,
+    MotionStatus, ReleaseEmergencyRequest,
 };
 #[cfg(test)]
 use crate::contract::{Constraint, ConstraintReason};
@@ -46,7 +46,7 @@ pub struct ArbiterState {
     protective_state_clear: bool,
     measurement_requirement_satisfied: bool,
     selected_owner_id: Option<String>,
-    selected_intent: Option<MotionIntent>,
+    selected_intent: Option<MotionSetpoint>,
     actuator_setpoint: WheelCommands,
 }
 
@@ -309,8 +309,8 @@ fn apply_arm(
     request: &ArmRequest,
     owner: &str,
     facts: MotionFacts,
-    manual: &Leased<'_, MotionIntent>,
-    autonomous: &Leased<'_, MotionIntent>,
+    manual: &Leased<'_, MotionSetpoint>,
+    autonomous: &Leased<'_, MotionSetpoint>,
     now: ExecutionTime,
 ) -> ApplyEmergencyResponse {
     if validation::arm_request(request).is_err() {
@@ -321,6 +321,9 @@ fn apply_arm(
     }
     let Some(mode) = armed_mode(request.mode) else {
         return refused(EmergencyRefusalReason::InvalidRequest);
+    };
+    let Some(owner) = authenticated_instance(owner) else {
+        return refused(EmergencyRefusalReason::ProtectiveState);
     };
     if state.emergency_latched
         || !facts.protective_state_clear
@@ -360,8 +363,8 @@ fn armed_mode(mode: ControlMode) -> Option<ArmedMode> {
 fn intent_matches(
     mode: ArmedMode,
     owner_id: &str,
-    manual: &Leased<'_, MotionIntent>,
-    autonomous: &Leased<'_, MotionIntent>,
+    manual: &Leased<'_, MotionSetpoint>,
+    autonomous: &Leased<'_, MotionSetpoint>,
     _now: ExecutionTime,
 ) -> bool {
     let (intent, source, valid) = match mode {
@@ -374,18 +377,30 @@ fn intent_matches(
         .is_some_and(|((_, source), _)| intent_owner_matches(owner_id, Some(source)))
 }
 
+/// Commands name an authenticated caller endpoint; leased input names its instance.
+/// Transport admission has already checked that the caller belongs to that source.
+fn authenticated_instance(caller: &str) -> Option<&str> {
+    match caller.split_once('.') {
+        Some((instance, endpoint))
+            if !instance.is_empty() && !endpoint.is_empty() && !endpoint.contains('.') =>
+        {
+            Some(instance)
+        }
+        Some(_) => None,
+        None if !caller.is_empty() => Some(caller),
+        None => None,
+    }
+}
+
 fn intent_owner_matches(command_owner: &str, intent_source: Option<&str>) -> bool {
-    // The supervisor publishes scenario setpoints as its virtual graph source.
-    // Its external Commands ingress names that same authority supervisor.public.
-    intent_source == Some(command_owner)
-        || (command_owner == "supervisor.public" && intent_source == Some("supervisor"))
+    authenticated_instance(command_owner).is_some_and(|owner| intent_source == Some(owner))
 }
 
 fn select_and_limit_intent(
     state: &mut ArbiterState,
     safety_view: &Observation<'_, MotionConstraints>,
-    manual: &Leased<'_, MotionIntent>,
-    autonomous: &Leased<'_, MotionIntent>,
+    manual: &Leased<'_, MotionSetpoint>,
+    autonomous: &Leased<'_, MotionSetpoint>,
     now: ExecutionTime,
 ) {
     let safety = fresh_safety(safety_view, now);
@@ -455,9 +470,9 @@ pub fn manual_intent(
     linear_x_mps: f64,
     angular_z_radps: f64,
     issued_at: ExecutionTime,
-) -> Setpoint<MotionIntent> {
+) -> Setpoint<MotionSetpoint> {
     Setpoint::from_source(
-        MotionIntent {
+        MotionSetpoint {
             linear_x_mps,
             angular_z_radps,
         },
@@ -476,7 +491,7 @@ pub fn autonomous_intent(
     linear_x_mps: f64,
     angular_z_radps: f64,
     issued_at: ExecutionTime,
-) -> Setpoint<MotionIntent> {
+) -> Setpoint<MotionSetpoint> {
     manual_intent(owner_id, linear_x_mps, angular_z_radps, issued_at)
 }
 
@@ -691,8 +706,8 @@ mod tests {
     }
 
     fn inputs(
-        manual: Setpoint<MotionIntent>,
-        autonomous: Setpoint<MotionIntent>,
+        manual: Setpoint<MotionSetpoint>,
+        autonomous: Setpoint<MotionSetpoint>,
         calls: Vec<TestCall>,
     ) -> MotionInputs {
         let mut arm = Vec::new();
@@ -1158,6 +1173,106 @@ mod tests {
             ControlMode::Disarmed
         );
         assert!(state.status().expect("accepted status").stopped);
+    }
+
+    #[test]
+    fn authenticated_call_requires_the_same_instance_and_a_complete_endpoint() {
+        for caller in [
+            "other.generated_call",
+            "gamepadx.generated_call",
+            "gamepad.",
+            ".generated_call",
+            "gamepad.generated_call.extra",
+            "",
+        ] {
+            let (state, replies) = step(
+                new_arbiter(config()),
+                &context(0, 0),
+                &inputs(
+                    manual_intent("gamepad", 0.0, 0.0, at(0)),
+                    Setpoint::withdrawn(),
+                    vec![arm(1, ControlMode::Manual, caller)],
+                ),
+            );
+            assert!(
+                matches!(
+                    replies.arm_replies.as_slice(),
+                    [ApplyEmergencyResponse::Refused(_)]
+                ),
+                "caller {caller}"
+            );
+            assert_eq!(
+                state.status().expect("refused authority").mode,
+                ControlMode::Disarmed
+            );
+        }
+        assert!(intent_owner_matches("gamepad.arm_motion", Some("gamepad")));
+        assert!(intent_owner_matches(
+            "supervisor.public",
+            Some("supervisor")
+        ));
+        assert!(!intent_owner_matches(
+            "gamepad.generated_call",
+            Some("other")
+        ));
+    }
+
+    #[test]
+    fn generated_call_same_instance_can_arm_from_admitted_intent() {
+        let (state, replies) = step(
+            new_arbiter(config()),
+            &context(0, 0),
+            &inputs(
+                manual_intent("gamepad", 0.0, 0.0, at(0)),
+                Setpoint::withdrawn(),
+                vec![arm(1, ControlMode::Manual, "gamepad.generated_call")],
+            ),
+        );
+        assert_eq!(replies.arm_replies, vec![ApplyEmergencyResponse::Accepted]);
+        assert_eq!(
+            state
+                .status()
+                .expect("accepted authority")
+                .selected_owner_id
+                .as_deref(),
+            Some("gamepad")
+        );
+    }
+
+    #[test]
+    fn frozen_logical_lease_requires_withdrawal_before_motion_invocation() {
+        // Reproduce the stale input cut when a paused producer has not run yet.
+        // This qualifies Motion's actual runtime, not a native pause barrier.
+        let (state, _) = step(
+            new_arbiter(config()),
+            &context(0, 0),
+            &inputs(
+                manual_intent("gamepad", 0.2, 0.0, at(0)),
+                Setpoint::withdrawn(),
+                vec![arm(1, ControlMode::Manual, "gamepad")],
+            ),
+        );
+        assert!(!state.status().expect("moving status").stopped);
+        let (state, _) = step(
+            state,
+            &context(1, 20_000_000),
+            &inputs(
+                manual_intent("gamepad", 0.2, 0.0, at(0)),
+                Setpoint::withdrawn(),
+                Vec::new(),
+            ),
+        );
+        assert!(!state.status().expect("previous lease still valid").stopped);
+        let (state, _) = step(
+            state,
+            &context(2, 40_000_000),
+            &inputs(Setpoint::withdrawn(), Setpoint::withdrawn(), Vec::new()),
+        );
+        assert!(state.status().expect("withdrawal stops").stopped);
+        assert_eq!(
+            state.status().expect("authority removed").mode,
+            ControlMode::Disarmed
+        );
     }
 
     #[test]

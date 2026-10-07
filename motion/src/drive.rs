@@ -1,8 +1,8 @@
 //! Differential-drive body twist to motor shaft velocity, in SI units.
 use crate::config::MotionConfig;
 use crate::config::WheelSide;
-use crate::contract::MotionIntent;
 use phoxal::contracts::component::actuator::Control;
+use phoxal::contracts::robotics::MotionSetpoint;
 
 /// Private invocation-local calculation, not a wire-addressed actuator message.
 #[derive(Clone, Debug, PartialEq)]
@@ -19,7 +19,10 @@ pub(super) fn stopped_setpoint(config: &MotionConfig) -> WheelCommands {
     setpoint_from_twist(0.0, 0.0, config)
 }
 
-pub(super) fn setpoint_from_intent(intent: &MotionIntent, config: &MotionConfig) -> WheelCommands {
+pub(super) fn setpoint_from_intent(
+    intent: &MotionSetpoint,
+    config: &MotionConfig,
+) -> WheelCommands {
     let linear = intent
         .linear_x_mps
         .clamp(-config.max_linear_mps, config.max_linear_mps);

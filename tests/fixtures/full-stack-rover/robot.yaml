@@ -8,84 +8,69 @@ robot:
         git:
           name: phoxal-component-ddsm115
           url: https://github.com/phoxal/components.git
-          rev: 701f60f94c4581da195b717e7c43f2c898a83d84
+          rev: cba3d5773f034211367bf4032f672df444ec2d33
           path: ddsm115
       mount_site: front_left_wheel_mount
       driver:
-        connection:
-          type: serial
-          port: /dev/ttyUSB0
-          baud: 115200
-        config:
-          id: 1
+        bindings:
+          actuator:
+          - motion.front_left_actuator
     front_right_drive:
       source:
         git:
           name: phoxal-component-ddsm115
           url: https://github.com/phoxal/components.git
-          rev: 701f60f94c4581da195b717e7c43f2c898a83d84
+          rev: cba3d5773f034211367bf4032f672df444ec2d33
           path: ddsm115
       mount_site: front_right_wheel_mount
       driver:
-        connection:
-          type: serial
-          port: /dev/ttyUSB0
-          baud: 115200
-        config:
-          id: 2
+        bindings:
+          actuator:
+          - motion.front_right_actuator
     rear_left_drive:
       source:
         git:
           name: phoxal-component-ddsm115
           url: https://github.com/phoxal/components.git
-          rev: 701f60f94c4581da195b717e7c43f2c898a83d84
+          rev: cba3d5773f034211367bf4032f672df444ec2d33
           path: ddsm115
       mount_site: rear_left_wheel_mount
       driver:
-        connection:
-          type: serial
-          port: /dev/ttyUSB0
-          baud: 115200
-        config:
-          id: 3
+        bindings:
+          actuator:
+          - motion.rear_left_actuator
     rear_right_drive:
       source:
         git:
           name: phoxal-component-ddsm115
           url: https://github.com/phoxal/components.git
-          rev: 701f60f94c4581da195b717e7c43f2c898a83d84
+          rev: cba3d5773f034211367bf4032f672df444ec2d33
           path: ddsm115
       mount_site: rear_right_wheel_mount
       driver:
-        connection:
-          type: serial
-          port: /dev/ttyUSB0
-          baud: 115200
-        config:
-          id: 4
+        bindings:
+          actuator:
+          - motion.rear_right_actuator
     front_center_tof:
       source:
         git:
           name: phoxal-component-vl53l1x
           url: https://github.com/phoxal/components.git
-          rev: 701f60f94c4581da195b717e7c43f2c898a83d84
+          rev: cba3d5773f034211367bf4032f672df444ec2d33
           path: vl53l1x
       mount_site: front_center_tof_mount
-      driver:
-        connection:
-          type: i2c
-          bus: 1
-          address: 41
+      driver: {}
 supervisor:
   source:
     git:
       name: phoxal-supervisor
       url: https://github.com/phoxal/supervisor.git
-      rev: da872d5b5389bcec7e449b90db24eea8d460c448
+      rev: 75de07a892794d1d9eff649e53ce4a1de79e97fa
 brain: {}
 services:
   kinematics:
-    source: {path: ../../../kinematics}
+    source:
+      path: ../../../kinematics
     config:
       wheel_radius_m: 0.11
       wheel_base_m: 0.52
@@ -107,21 +92,48 @@ services:
         joint_id: rear_right_wheel
         longitudinal_offset_m: -0.18
         direction_sign: -1
+    bindings:
+      encoders:
+      - front_left_drive.encoder
+      - rear_left_drive.encoder
+      - front_right_drive.encoder
+      - rear_right_drive.encoder
   world:
-    source: {path: ../../../world}
+    source:
+      path: ../../../world
+    bindings:
+      pose:
+      - kinematics.odometry
   navigation:
-    source: {path: ../../../navigation}
+    source:
+      path: ../../../navigation
     config:
       max_expansions_per_step: 32
       goal_tolerance_m: 0.1
+    bindings:
+      localization:
+      - kinematics.odometry
+      map:
+      - world.revision
   safety:
-    source: {path: ../../../safety}
+    source:
+      path: ../../../safety
     config:
       input_max_age_ms: 120
       ranges:
       - sensor_id: front_center_tof
+    bindings:
+      world:
+      - world.belief
+      world_revision:
+      - world.revision
+      motion:
+      - motion.status
+      ranges:
+      - front_center_tof.range
   motion:
-    source: {path: ../../../motion}
+    source:
+      path: ../../../motion
     config:
       max_linear_mps: 0.6
       max_angular_radps: 2.0
@@ -142,38 +154,8 @@ services:
             rear_right:
               side: right
               direction_sign: -1
-connections:
-- from: motion.front_left_actuator
-  to: front_left_drive.actuator
-- from: motion.rear_left_actuator
-  to: rear_left_drive.actuator
-- from: motion.front_right_actuator
-  to: front_right_drive.actuator
-- from: motion.rear_right_actuator
-  to: rear_right_drive.actuator
-- from: front_left_drive.encoder
-  to: kinematics.encoders
-- from: rear_left_drive.encoder
-  to: kinematics.encoders
-- from: front_right_drive.encoder
-  to: kinematics.encoders
-- from: rear_right_drive.encoder
-  to: kinematics.encoders
-- from: kinematics.odometry
-  to: world.pose
-- from: world.belief
-  to: safety.world
-- from: world.revision
-  to: safety.world_revision
-- from: motion.status
-  to: safety.motion
-- from: front_center_tof.range
-  to: safety.ranges
-- from: safety.constraints
-  to: motion.safety
-- from: kinematics.odometry
-  to: motion.measurements
-- from: kinematics.odometry
-  to: navigation.localization
-- from: world.revision
-  to: navigation.map
+    bindings:
+      safety:
+      - safety.constraints
+      measurements:
+      - kinematics.odometry

@@ -1,18 +1,17 @@
 [package]
-name = "phoxal-service-motion"
-version = "0.0.0-dev.9"
+name = "phoxal-service-gamepad"
+version = "0.0.0-dev.1"
 edition = "2024"
 rust-version = "1.88"
 license = "AGPL-3.0-only"
 publish = false
-description = "Motion service executable for Phoxal."
-documentation = "https://github.com/phoxal/services#readme"
+description = "Stepped local gamepad input and Motion authority for Phoxal."
 homepage = "https://github.com/phoxal/services"
 repository = "https://github.com/phoxal/services"
-include = ["src/**", "build.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE", ".cargo/config.toml", "clippy.toml"]
+include = ["src/**", "build.rs", "Cargo.toml", "Cargo.lock", "README.md", "LICENSE", "clippy.toml"]
 
 [[bin]]
-name = "phoxal-service-motion"
+name = "phoxal-service-gamepad"
 path = "src/main.rs"
 
 [build-dependencies]
@@ -20,9 +19,11 @@ phoxal = { version = "0.71.0", default-features = false, features = ["build"] }
 
 [dependencies]
 phoxal = { version = "0.71.0", default-features = false, features = ["runtime"] }
-thiserror = { version = "2.0.18" }
-anyhow = { version = "1.0.102" }
+gilrs = "0.11.2"
 serde = { version = "1.0.228", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1.0.149"
 
 [lints.rust]
 unused = "warn"
@@ -31,3 +32,8 @@ unwrap_used = "deny"
 expect_used = "deny"
 todo = "deny"
 unimplemented = "deny"
+
+[[test]]
+name = "native_process"
+path = "tests/native_process.rs"
+harness = false

@@ -5,8 +5,9 @@ phoxal::api!();
 
 use api::motion;
 use api::motion::ControlMode;
-use api::motion::{ApplyEmergencyResponse, ArmRequest, MotionIntent};
+use api::motion::{ApplyEmergencyResponse, ArmRequest};
 use api::{kinematics, safety};
+use phoxal::contracts::robotics::MotionSetpoint;
 
 fn forward_turn_stop(sim: &mut Simulation) -> phoxal::Result<()> {
     let mut plan = sim.plan();
@@ -306,7 +307,7 @@ fn manual(
     linear_x_mps: f64,
     angular_z_radps: f64,
 ) -> impl phoxal::scenario::SendOperation<Response = phoxal::contracts::Empty> {
-    motion::manual(MotionIntent {
+    motion::manual(MotionSetpoint {
         linear_x_mps,
         angular_z_radps,
     })
